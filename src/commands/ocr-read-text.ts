@@ -14,13 +14,15 @@ export class OcrReadTextCommand extends AbstractCommandHandler {
   protected async process(
     session: AppSession,
     photo: string,
-    _params: Record<string, string> | undefined,
+    params: Record<string, string> | undefined,
     sessionId: string | undefined,
   ): Promise<void> {
-    const result = await this.ai.readText(photo);
+    const raw = await this.ai.readText(photo, params?.context);
+    // Replace newlines with spaces so TTS reads it as continuous text
+    const result = raw.replace(/\n+/g, " ").replace(/\s{2,}/g, " ").trim();
     this.logger.info(`OCR result: ${result.substring(0, 100)}...`);
 
-    if (!result || result.trim().length === 0) {
+    if (!result || result.length === 0) {
       await speakBilingual(session, {
         ar: "ما قدرت ألاقي نص في الصورة.",
         en: "I couldn't find any text in the image.",

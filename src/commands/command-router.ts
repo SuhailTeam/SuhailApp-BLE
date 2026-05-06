@@ -77,6 +77,8 @@ function routeCommandByKeyword(transcription: string): RouteResult | null {
       if (entry.command === "find-object") {
         const rest = text.slice(firstWord.length).trim();
         params = { objectName: rest || "object" };
+      } else if (entry.command === "ocr-read-text") {
+        params = { context: transcription };
       }
 
       return { command: entry.command, params, rawText: transcription };
@@ -211,6 +213,8 @@ export async function routeCommand(
       params.objectName = classification.param;
     } else if (classification.intent === "visual_qa") {
       params.question = classification.param || transcription;
+    } else if (classification.intent === "ocr_read_text") {
+      params.context = transcription;
     }
 
     return {

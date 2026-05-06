@@ -215,11 +215,15 @@ Respond ONLY with a raw JSON object (no markdown):
 /**
  * Extracts all visible text from an image using the vision LLM.
  */
-export async function extractText(imageBase64: string): Promise<string> {
+export async function extractText(imageBase64: string, context?: string): Promise<string> {
   logger.info("Sending image to OpenRouter for text extraction (vision OCR)...");
   try {
+    const prompt = context
+      ? `The user asked: "${context}". Read ONLY the text from the specific object or area they are referring to. Return the text exactly as written, preserving the reading order. Do not include text from other objects, screens, or surfaces in the scene. Do not describe the image or add any commentary. If no text is found on that object, respond with an empty string. ${langInstruction()}`
+      : `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction()}`;
+
     const extractedText = await callVisionAPI({
-      prompt: `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction()}`,
+      prompt,
       imageBase64,
       maxTokens: 500,
     });

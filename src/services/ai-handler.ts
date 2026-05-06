@@ -30,9 +30,9 @@ export class AIHandler {
   }
 
   /** Extract text from a photo via OCR */
-  async readText(imageBase64: string): Promise<string> {
+  async readText(imageBase64: string, context?: string): Promise<string> {
     logger.info("AI Handler → OCR Text Extraction");
-    return ocrService.extractText(imageBase64);
+    return ocrService.extractText(imageBase64, context);
   }
 
   /** Recognize a face in a photo */

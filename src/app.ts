@@ -55,7 +55,7 @@ export class SuhailApp extends AppServer {
     timer: ReturnType<typeof setTimeout>;
     activatedAt: number;
     abortController?: AbortController;
-    preCapture?: string | null;
+    preCapturePromise?: Promise<string | null>;
   }>();
 
   /** How long the listening window stays open after activation (ms) */
@@ -414,8 +414,19 @@ export class SuhailApp extends AppServer {
         return;
       }
 
-      // Pass pre-captured photo to handler if available
-      const preCapture = listeningEntry.preCapture || undefined;
+      // Bounded wait on the pre-capture started during the swipe. If it isn't
+      // ready by now, fall through and let AbstractCommandHandler capture fresh
+      // — blocking on capturePhoto's full timeout here would stack two waits.
+      const PRE_CAPTURE_WAIT_MS = 3_000;
+      let preCapture: string | undefined;
+      if (listeningEntry.preCapturePromise) {
+        const result = await Promise.race([
+          listeningEntry.preCapturePromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), PRE_CAPTURE_WAIT_MS)),
+        ]);
+        preCapture = result || undefined;
+        logger.info(`[${sessionId}] Pre-capture ${result ? "ready" : "not ready, falling through"}`);
+      }
 
       // Enable TTS echo guard before the handler speaks, clear after + buffer
       this.speakingSessions.add(sessionId);
@@ -459,28 +470,20 @@ export class SuhailApp extends AppServer {
       }
     }, SuhailApp.LISTENING_TIMEOUT_MS);
 
-    this.listeningSessions.set(sessionId, { state: "active", timer, activatedAt: Date.now() });
+    // Fire photo capture in parallel with the listening cue. Store the promise
+    // (not the resolved value) so the transcription handler can await it on
+    // demand — this avoids a race where a fast-talking user's transcription
+    // is processed before the pre-capture has resolved.
+    const preCapturePromise = capturePhoto(session);
+    this.listeningSessions.set(sessionId, { state: "active", timer, activatedAt: Date.now(), preCapturePromise });
     logger.info(`[${sessionId}] Listening mode activated (${SuhailApp.LISTENING_TIMEOUT_MS / 1000}s window)`);
 
-    // Fire photo capture and TTS listening cue in parallel
-    const preCapturePromise = capturePhoto(session);
     await speakBilingual(session, messages.listening, sessionId);
 
-    // Await pre-capture with a 3s timeout (TTS already bought us ~1s)
-    const PRE_CAPTURE_TIMEOUT_MS = 3_000;
+    // Reset activation time so the grace period starts after the cue finishes
     const entry = this.listeningSessions.get(sessionId);
     if (entry && entry.state === "active") {
       entry.activatedAt = Date.now();
-      try {
-        entry.preCapture = await Promise.race([
-          preCapturePromise,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), PRE_CAPTURE_TIMEOUT_MS)),
-        ]);
-        logger.info(`[${sessionId}] Pre-capture ${entry.preCapture ? "ready" : "timed out"}`);
-      } catch {
-        entry.preCapture = null;
-        logger.info(`[${sessionId}] Pre-capture failed`);
-      }
     }
   }
 

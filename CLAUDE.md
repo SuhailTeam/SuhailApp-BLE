@@ -193,7 +193,7 @@ const photoData = await session.camera.requestPhoto(options?);
 
 // Options:
 interface PhotoRequestOptions {
-  size?: "small" | "medium" | "large";  // Default: "medium". NOTE: there is no "full" option
+  size?: "small" | "medium" | "large" | "full";  // Default: "medium". Avoid "full" on Mentra Live — uploads can take 25s+
   saveToGallery?: boolean;
   compress?: "none" | "medium" | "heavy";  // Default: "none"
   customWebhookUrl?: string;
@@ -364,7 +364,6 @@ Configured in the Mentra Developer Console (not at runtime):
 - `session.screen` — does not exist
 - `session.audio.playUrl(url)` — the correct method is `session.audio.playAudio({ audioUrl })`
 - `session.camera.takePhoto()` — the correct method is `session.camera.requestPhoto()`
-- Photo size `"full"` — only `"small"`, `"medium"`, `"large"` exist
 
 ## Project Structure
 
@@ -394,7 +393,7 @@ suhail/
 │   ├── utils/
 │   │   ├── config.ts                   # Environment variables (all from process.env with defaults)
 │   │   ├── logger.ts                   # Logger class with tag-based [Tag] prefix logging
-│   │   ├── image-utils.ts              # capturePhoto(session) -> base64 string (full resolution), cropFace() for multi-face, base64 helpers
+│   │   ├── image-utils.ts              # capturePhoto(session) -> base64 string (1920x1080), cropFace() for multi-face, base64 helpers
 │   │   ├── transcription-filter.ts     # Validates transcriptions (rejects garbled/wrong-script text)
 │   │   └── transcription-normalizer.ts # LLM-based script normalization (Arabic-script English → Latin)
 │   └── types/
@@ -626,7 +625,7 @@ All core features are **fully implemented** with real AI backends. The app is pr
 - **Device state tracking** — battery, case battery, charging, WiFi status via reactive `device.state` observables, exposed via `/api/status`
 - **Permission error handling** — `onPermissionError()` speaks a warning when camera/mic permissions are missing
 - **Audio track mixing** — TTS uses dedicated `trackId: 2`, leaving track 1 available for background audio
-- **Full resolution photos** — all camera captures use `"full"` (native sensor resolution) for maximum accuracy
+- **High-resolution photos** — all camera captures use `"large"` (1920x1080) for accuracy without the long upload latency of `"full"`
 - **Structured activity log** — enriched with type, command, result fields
 - **Face enrollment timestamps** — `enrolledAt` field on face metadata
 - **Landing page** — React + Vite app in `landing/`
