@@ -1,19 +1,23 @@
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import { getSettings } from "./settings-store";
-import type { VisionResponse, CurrencyResult, CurrencyBill } from "../types";
+import type { VisionResponse, CurrencyResult, CurrencyBill, Language } from "../types";
 
 const logger = new Logger("VisionService");
 
-/** Returns the language instruction based on the user's current language setting */
-function langInstruction(): string {
-  return getSettings().language === "ar"
-    ? "Respond in Arabic."
-    : "Respond in English.";
+/** Resolves an optional language override to a concrete value (falls back to current settings). */
+function resolveLanguage(language?: Language): Language {
+  return language ?? getSettings().language;
 }
 
-function langName(): string {
-  return getSettings().language === "ar" ? "Arabic" : "English";
+/** Returns the language instruction for the prompt. */
+function langInstruction(language: Language): string {
+  return language === "ar" ? "Respond in Arabic." : "Respond in English.";
+}
+
+/** Returns the language's English name (used inside prompts as a literal). */
+function langName(language: Language): string {
+  return language === "ar" ? "Arabic" : "English";
 }
 
 /* ── Shared OpenRouter vision helper ─────────────────────── */
@@ -70,17 +74,18 @@ function cleanJSON(raw: string): string {
 /**
  * Sends a photo to OpenRouter for a scene description.
  */
-export async function describeScene(imageBase64: string): Promise<VisionResponse> {
+export async function describeScene(imageBase64: string, language?: Language): Promise<VisionResponse> {
+  const lang = resolveLanguage(language);
   logger.info("Sending image to OpenRouter API...");
   try {
     const description = await callVisionAPI({
-      prompt: `You are describing a scene to a blind person wearing smart glasses. In 2-3 short sentences (~50 words total), describe what they're facing: the setting or space they're in, the main objects in view, and where things are positioned relative to them (e.g., "on the desk in front of you", "to your right"). Mention people you see but don't try to identify them. Skip minor details like brand names or text on screens. Use natural spoken language — no markdown, lists, or symbols. ${langInstruction()}`,
+      prompt: `You are describing a scene to a blind person wearing smart glasses. In 2-3 short sentences (~50 words total), describe what they're facing: the setting or space they're in, the main objects in view, and where things are positioned relative to them (e.g., "on the desk in front of you", "to your right"). Mention people you see but don't try to identify them. Skip minor details like brand names or text on screens. Use natural spoken language — no markdown, lists, or symbols. ${langInstruction(lang)}`,
       imageBase64,
       maxTokens: 200,
     });
     logger.info(`Received scene description: ${description}`);
     return {
-      description: description || (getSettings().language === "ar"
+      description: description || (lang === "ar"
         ? "عذرًا، لم أتمكن من الحصول على وصف للصورة."
         : "Sorry, I couldn't get a description of the image."),
       confidence: 0.90,
@@ -96,18 +101,20 @@ export async function describeScene(imageBase64: string): Promise<VisionResponse
  */
 export async function answerVisualQuestion(
   imageBase64: string,
-  question: string
+  question: string,
+  language?: Language,
 ): Promise<VisionResponse> {
+  const lang = resolveLanguage(language);
   logger.info(`Sending image + question to OpenRouter: "${question}"`);
   try {
     const description = await callVisionAPI({
-      prompt: `${question}\n\nAnswer briefly in 1-2 sentences based on the image. Be direct. Your response will be read aloud by text-to-speech, so use plain spoken language only — no markdown, no LaTeX, no special symbols. Write math as spoken words (e.g. "x equals 37 over 5" not "$x = 37/5$"). ${langInstruction()}`,
+      prompt: `${question}\n\nAnswer briefly in 1-2 sentences based on the image. Be direct. Your response will be read aloud by text-to-speech, so use plain spoken language only — no markdown, no LaTeX, no special symbols. Write math as spoken words (e.g. "x equals 37 over 5" not "$x = 37/5$"). ${langInstruction(lang)}`,
       imageBase64,
       maxTokens: 200,
     });
     logger.info(`Received VQA answer: ${description}`);
     return {
-      description: description || (getSettings().language === "ar"
+      description: description || (lang === "ar"
         ? "عذرًا، لم أتمكن من الإجابة على السؤال."
         : "Sorry, I couldn't answer the question."),
       confidence: 0.90,
@@ -235,8 +242,10 @@ If you can see bills but cannot identify the denomination, respond with: {"bills
  */
 export async function detectObject(
   imageBase64: string,
-  targetObject: string
+  targetObject: string,
+  language?: Language,
 ): Promise<{ found: boolean; location: string; confidence: number }> {
+  const lang = resolveLanguage(language);
   logger.info(`Searching for "${targetObject}" via OpenRouter...`);
   try {
     const raw = await callVisionAPI({
@@ -250,7 +259,7 @@ If found, describe its location using spatial directions relative to the person 
 - Mention what it's near or on top of for context (e.g., "on the desk next to the laptop")
 
 Respond ONLY with a raw JSON object (no markdown):
-{"found": true/false, "location": "spatial description in ${langName()}, or empty string if not found"}`,
+{"found": true/false, "location": "spatial description in ${langName(lang)}, or empty string if not found"}`,
       imageBase64,
       maxTokens: 150,
     });
@@ -269,12 +278,17 @@ Respond ONLY with a raw JSON object (no markdown):
 /**
  * Extracts all visible text from an image using the vision LLM.
  */
-export async function extractText(imageBase64: string, context?: string): Promise<string> {
+export async function extractText(
+  imageBase64: string,
+  context?: string,
+  language?: Language,
+): Promise<string> {
+  const lang = resolveLanguage(language);
   logger.info("Sending image to OpenRouter for text extraction (vision OCR)...");
   try {
     const prompt = context
-      ? `The user asked: "${context}". Read ONLY the text from the specific object or area they are referring to. Return the text exactly as written, preserving the reading order. Do not include text from other objects, screens, or surfaces in the scene. Do not describe the image or add any commentary. If no text is found on that object, respond with an empty string. ${langInstruction()}`
-      : `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction()}`;
+      ? `The user asked: "${context}". Read ONLY the text from the specific object or area they are referring to. Return the text exactly as written, preserving the reading order. Do not include text from other objects, screens, or surfaces in the scene. Do not describe the image or add any commentary. If no text is found on that object, respond with an empty string. ${langInstruction(lang)}`
+      : `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction(lang)}`;
 
     const extractedText = await callVisionAPI({
       prompt,
@@ -292,20 +306,21 @@ export async function extractText(imageBase64: string, context?: string): Promis
 /**
  * Analyzes the center region of an image to detect the dominant color.
  */
-export async function detectColor(imageBase64: string): Promise<{
+export async function detectColor(imageBase64: string, language?: Language): Promise<{
   colorName: string;
   hex: string;
 }> {
+  const lang = resolveLanguage(language);
   logger.info("Analyzing image for dominant color via OpenRouter...");
   try {
     const raw = await callVisionAPI({
-      prompt: `Identify the dominant color in the center of this image. Respond ONLY with a raw JSON object (no markdown) containing 'colorName' (the name of the color in ${langName()}) and 'hex' (the hex code of the color).`,
+      prompt: `Identify the dominant color in the center of this image. Respond ONLY with a raw JSON object (no markdown) containing 'colorName' (the name of the color in ${langName(lang)}) and 'hex' (the hex code of the color).`,
       imageBase64,
       maxTokens: 80,
     });
     const parsed = JSON.parse(cleanJSON(raw) || "{}");
     return {
-      colorName: parsed.colorName || (getSettings().language === "ar" ? "غير معروف" : "unknown"),
+      colorName: parsed.colorName || (lang === "ar" ? "غير معروف" : "unknown"),
       hex: parsed.hex || "#000000",
     };
   } catch (error) {

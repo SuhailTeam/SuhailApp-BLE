@@ -21,6 +21,7 @@ import { normalizeTranscription } from "./utils/transcription-normalizer";
 import { capturePhoto } from "./utils/image-utils";
 import { startTimeline, endTimeline, mark } from "./utils/timeline";
 import { getSettings, updateSettings, initSettingsFromStorage, clearSettingsSession } from "./services/settings-store";
+import { registerRelayRoutes } from "./relay/routes";
 
 const logger = new Logger("SuhailApp");
 
@@ -225,6 +226,10 @@ export class SuhailApp extends AppServer {
     });
 
     logger.info("API routes registered (/api/status, /api/activity, /api/faces, /api/settings, /webview)");
+
+    // BLE-mobile relay endpoints (POST /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}).
+    // Authenticated via HMAC-Bearer (RELAY_SHARED_SECRET); see src/relay/auth.ts.
+    registerRelayRoutes(expressApp);
   }
 
   /**

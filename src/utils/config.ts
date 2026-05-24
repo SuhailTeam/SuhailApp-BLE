@@ -41,4 +41,9 @@ export const config = {
    * Dev: your ngrok URL. Prod: Railway URL. When set, short chimes replace the
    * "Listening" / "Got it" / "Cancelled" TTS cues (saves ~4-5s per command). */
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
+
+  /** Shared secret for the BLE mobile app's HMAC-Bearer auth on the relay
+   * endpoints (/api/intent, /api/vision/*, /api/faces/* POST, /api/tts).
+   * When empty, relay endpoints are open (dev mode — startup warning printed). */
+  relaySharedSecret: process.env.RELAY_SHARED_SECRET || "",
 } as const;
