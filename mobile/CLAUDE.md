@@ -192,8 +192,8 @@ The mobile app talks to the Railway server via these endpoints. The server imple
 | `/api/faces/:id` | DELETE | — | `{ ok: true }` | face-service → deleteFace |
 | `/api/faces/:id` | PUT | `{ name }` | `{ ok: true }` | face-service → renameFace |
 | `/api/faces/:id/photo` | GET | — | image bytes | reads `data/faces/:id.jpg` |
-| `/api/tts/token` | POST | `{ deviceId }` | `{ token, expiresAt }` | mints short-lived ElevenLabs session token |
-| `/api/tts` | POST | `{ text, voice, speed, language }` | PCM/WAV bytes | server-side TTS fallback if not using ElevenLabs WS directly |
+| `/api/tts` | POST | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes (Content-Type per format, `X-Audio-Format` header echoes choice) | server-side ElevenLabs TTS; default `format=mp3_44100_128`. Accepts `mp3_*`, `pcm_*` (8/16/22/24/44 kHz, 16-bit LE mono), and `ulaw_8000`. Returns 503 if `ELEVENLABS_API_KEY` is unset, 413 if text > 5000 chars. |
+| `/api/tts/token` *(deferred)* | POST | TBD | TBD | will mint a short-lived ElevenLabs Conversational AI signed URL when we set up a CAI agent. Not implemented yet — use `/api/tts` for now. |
 
 ### Auth
 

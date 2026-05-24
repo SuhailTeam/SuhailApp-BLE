@@ -1,6 +1,8 @@
 import { routeCommand } from "../commands/command-router";
 import * as visionService from "../services/vision-service";
 import * as faceService from "../services/face-service";
+import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../services/elevenlabs-tts";
+import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
 import { relayAuth, warnIfDevAuth } from "./auth";
@@ -195,8 +197,42 @@ export function registerRelayRoutes(expressApp: any): void {
     res.json({ faceId, name: name.trim(), enrolledAt: new Date().toISOString() });
   }));
 
+  /* ── /api/tts ────────────────────────────────────────────────────────── */
+
+  router.post("/tts", wrap("tts", async (req, res) => {
+    if (!config.elevenLabsApiKey) {
+      res.status(503).json({ error: "TTS not configured (ELEVENLABS_API_KEY missing)" });
+      return;
+    }
+    const { text, voicePreset, voiceId, speed, format } = req.body ?? {};
+    if (typeof text !== "string" || text.trim().length === 0) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    // ElevenLabs caps single-request text at 5000 chars; reject earlier so
+    // mobile gets a clean error instead of a vendor surprise.
+    if (text.length > 5000) {
+      res.status(413).json({ error: "text exceeds 5000 character limit" });
+      return;
+    }
+    const chosenFormat: AudioFormat | undefined = isValidFormat(format) ? format : undefined;
+    const { audio, format: usedFormat } = await synthesize({
+      text,
+      voicePreset: typeof voicePreset === "string" ? voicePreset : undefined,
+      voiceId: typeof voiceId === "string" ? voiceId : undefined,
+      speed: typeof speed === "number" ? speed : undefined,
+      format: chosenFormat,
+    });
+    res
+      .status(200)
+      .setHeader("Content-Type", contentTypeFor(usedFormat))
+      .setHeader("Content-Length", String(audio.length))
+      .setHeader("X-Audio-Format", usedFormat)
+      .send(audio);
+  }));
+
   // Mount the router. Existing /api/* routes (status, activity, faces GET/PUT/DELETE,
   // settings, faces photo) remain registered on the parent app and are not affected.
   expressApp.use("/api", router);
-  logger.info("Relay routes registered: /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}");
+  logger.info("Relay routes registered: /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts");
 }
