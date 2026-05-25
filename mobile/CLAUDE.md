@@ -112,28 +112,39 @@ This is the highest-risk part of the rewrite. Latency targets:
 | End of vision call → first audio byte to speaker | ~600-900 ms | ≤ 1.0 s |
 | Total swipe → first spoken word of response | ~3-4 s | ≤ 5 s |
 
-Two architectures are on the table:
+### Audio OUTPUT path (confirmed on iOS hardware)
 
-**Option A — ElevenLabs Conversational AI direct** (recommended; matches starter kit example)
-- Glasses PCM → mobile → WebSocket to ElevenLabs CAI → text (STT) + audio (TTS) back.
+**Mentra Live presents itself as both a BLE peripheral (data) and a Bluetooth Classic A2DP audio sink.** When iOS pairs over BLE through `@mentra/bluetooth-sdk`, the A2DP audio profile auto-pairs alongside it. From the OS perspective, the glasses speaker is just a regular Bluetooth audio output.
+
+Implications:
+- **No A2DP pairing UX needed in the app.** The `audio_pairing_needed` SDK event handler can be a no-op / fallback only.
+- **TTS playback** = `/api/tts` bytes → temp file → play with `expo-audio` → routes to default Bluetooth output automatically.
+- **Audio cues** = bundled WAVs in `mobile/assets/cues/` → play the same way.
+- **Mic / speaker arbitration**: call `BluetoothSdk.setOwnAppAudioPlaying(true)` before any playback and `(false)` after. The SDK uses this to manage mic state during speech.
+- **No multi-track concept** like the cloud's `trackId: 2` — there is no BLE audio channel to multiplex onto. **Serialize** speech and cues through a single playback queue.
+
+### Audio INPUT path (mic)
+
+Glasses mic emits PCM via the SDK's `mic_pcm` event after calling `BluetoothSdk.setMicState(enabled=true, useGlassesMic=true, ...)`. Format is fixed: **16 kHz, 16-bit signed LE, mono, `pcm_s16le`**. VAD-gated by default.
+
+Two STT architectures still on the table:
+
+**Option A — ElevenLabs Conversational AI direct** (matches starter kit example)
+- PCM → WebSocket to ElevenLabs CAI → text (STT) + audio (TTS) back.
 - Pros: one WebSocket, fastest, no Railway hop for the audio path.
-- Cons: phone must hold ElevenLabs API key (or ephemeral signed token from Railway).
-- Decision: **mobile holds an ephemeral token** that Railway mints with `/api/tts/token`. Token short-lived (5 min). Real key never leaves Railway.
+- Cons: phone needs an ephemeral signed URL from Railway (we add `/api/tts/token`); CAI agent must be configured on ElevenLabs side.
+- Real key never leaves Railway. Mobile holds short-lived (~5 min) signed URL.
 
-**Option B — Stream PCM to Railway, do STT server-side**
-- Glasses PCM → mobile → HTTPS chunks to Railway → Whisper or similar → text back.
-- Pros: zero secrets on phone, easier to swap STT providers, easier to log/analyze.
+**Option B — Stream PCM to Railway, do STT there**
+- PCM → HTTPS chunks (or a single batched POST) to Railway → Whisper / Scribe / similar → text back.
+- Pros: no secrets on phone, easy to swap STT providers, easier to log/analyze.
 - Cons: extra hop, more latency, Railway becomes a real-time audio relay (more failure surface).
 
-Default: A. Implement both `timeline.ts` spans early (port from [`src/utils/timeline.ts`](../src/utils/timeline.ts)) and measure on real hardware before locking in.
+Default plan: **measure both with the ported `timeline.ts` before locking in.** Start with Option B because it's the lowest moving-parts path to a working slice (no CAI agent setup), then evaluate A if latency is unacceptable.
 
 ### Audio cues
 
-The cloud version generates listening/got-it/cancelled chimes server-side and serves them at `/cues/*.wav`. For BLE: pre-generate the same WAVs at build time, bundle as `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`, ship raw bytes to the speaker via the BLE audio API. Saves ~2.5-3s vs TTS.
-
-### TTS track convention
-
-Cloud version uses `trackId: 2` for speech, leaves track 1 free for background audio. The BLE SDK may or may not surface the same multi-track concept — check the audio API. If it does, keep the same convention. If not, we serialize speech + cues into a single audio stream.
+Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues.
 
 ## Listening state machine
 
