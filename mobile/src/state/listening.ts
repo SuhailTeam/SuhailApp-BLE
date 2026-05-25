@@ -2,26 +2,27 @@ import { create } from "zustand";
 import { playCue } from "../audio/cues";
 import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
+import { cancelCapture, startCapture } from "../ble/mic";
+import { transcribe as sttTranscribe } from "../relay/stt";
+import { RelayError } from "../relay/client";
 import { messages } from "../i18n/messages";
 import { useActivity } from "./activity";
 import { getLastResponse, setLastResponse, clearLastResponse } from "./lastResponse";
 import { getSettings } from "./settings";
+import { isValidTranscription } from "../utils/transcription-filter";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("Listening");
 
 /* ── Constants — port from src/app.ts ────────────────────────────────────── */
 
-/** How long the listening window stays open after activation. */
+/** Failsafe: if nothing happens, force-stop the mic after this long. */
 export const LISTENING_TIMEOUT_MS = 10_000;
 
 /** Ignore transcriptions for this long after activation (stale audio). */
 export const LISTENING_GRACE_MS = 1_000;
 
-/**
- * TTS echo guard — keep "speaking" true for this long after audio finishes so
- * the mic doesn't pick up the tail of our own speech as a command.
- */
+/** TTS echo guard — keep "speaking" true for this long after audio finishes. */
 export const TTS_ECHO_BUFFER_MS = 1_500;
 
 /** Minimum confidence to accept a transcription. */
@@ -31,7 +32,6 @@ export type ListeningState = "idle" | "active" | "processing";
 
 interface ListeningStore {
   state: ListeningState;
-  /** Wall-clock ms when we entered "active" (used for the grace window). */
   activatedAt: number;
   /** True for the TTS echo guard window (during speech + buffer afterwards). */
   speaking: boolean;
@@ -43,15 +43,18 @@ const useListening = create<ListeningStore>(() => ({
   speaking: false,
 }));
 
-/* ── Internal helpers ────────────────────────────────────────────────────── */
+/* ── Internal handles ────────────────────────────────────────────────────── */
 
-let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-let abortController: AbortController | null = null;
+let failsafeTimer: ReturnType<typeof setTimeout> | null = null;
+let sttAbort: AbortController | null = null;
+/** Token incremented on every cancel — long-running async work checks it before
+ *  taking side effects so we don't act on stale captures after an interrupt. */
+let activationToken = 0;
 
-function clearTimer(): void {
-  if (timeoutHandle) {
-    clearTimeout(timeoutHandle);
-    timeoutHandle = null;
+function clearFailsafe(): void {
+  if (failsafeTimer) {
+    clearTimeout(failsafeTimer);
+    failsafeTimer = null;
   }
 }
 
@@ -59,63 +62,60 @@ function logActivity(event: string): void {
   useActivity.getState().log({ type: "system", command: "listening", event });
 }
 
-/* ── Public API — call these from button/swipe handlers ──────────────────── */
+/* ── Public API ──────────────────────────────────────────────────────────── */
 
 /**
- * Activates listening (forward swipe / left short press).
- * Behaviour mirrors src/app.ts `activateListening` exactly:
- *   - idle → active (play listening cue, start 10s timeout)
- *   - active → cancel (user changed their mind) + play cancelled cue
- *   - processing → silence in-flight TTS + cancel + immediately re-listen (no cue)
+ * Activates listening (forward swipe / left short press / Test button).
+ *   - idle → active (play listening cue, start mic capture)
+ *   - active → cancel + cancelled cue (user changed mind)
+ *   - processing → silence in-flight audio + STT, re-listen with no cue
  */
 export async function activate(): Promise<void> {
   const current = useListening.getState();
 
   if (current.state === "processing") {
-    // "Shut up and listen again" — silence current TTS, no cue, just re-listen.
     logger.info("forward swipe during processing — interrupting");
-    abortController?.abort();
-    abortController = null;
-    clearTimer();
+    activationToken++;
+    sttAbort?.abort();
+    sttAbort = null;
+    await cancelCapture().catch(() => {});
     await stopAllAudio().catch(() => {});
-    // Drop the echo guard now so the next transcription isn't dropped during
-    // the 1500ms buffer the cancelled handler would otherwise schedule.
     useListening.setState({ speaking: false });
     logActivity("interrupted during processing → listening");
-    await enterActive(/* withCue */ true);
+    void runListenSession(/* withCue */ true);
     return;
   }
 
   if (current.state === "active") {
-    // Already listening — user changed their mind. Cancel with feedback.
     logger.info("activate while active — cancelling");
     await cancelInternal(/* withCue */ true);
     return;
   }
 
-  await enterActive(/* withCue */ true);
+  void runListenSession(/* withCue */ true);
 }
 
 /**
  * Cancel + return to listening (left short press during active/processing).
- * Same as activate() except never plays the cancelled cue — the listening
+ * Same as activate() but never plays the cancelled cue — the listening
  * chime is the user's confirmation that the interrupt worked.
  */
 export async function interruptAndListen(): Promise<void> {
   logger.info("interrupt-and-listen (left short press)");
-  abortController?.abort();
-  abortController = null;
-  clearTimer();
+  activationToken++;
+  sttAbort?.abort();
+  sttAbort = null;
+  await cancelCapture().catch(() => {});
   await stopAllAudio().catch(() => {});
   useListening.setState({ speaking: false });
   logActivity("interrupted → listening");
-  await enterActive(/* withCue */ true);
+  void runListenSession(/* withCue */ true);
 }
 
 /**
  * Repeat the last spoken response (backward swipe / left long press).
- * Works from any state; if there's nothing to repeat, speaks the
- * `repeatNoHistory` bilingual message.
+ * Works from any state. If nothing to repeat, speaks the `repeatNoHistory`
+ * bilingual message.
  */
 export async function repeatLast(): Promise<void> {
   const text = getLastResponse();
@@ -126,79 +126,61 @@ export async function repeatLast(): Promise<void> {
   await speakWithEchoGuard(toSay);
 }
 
-/** Returns the current listening state (for non-React contexts). */
 export function getListeningState(): ListeningState {
   return useListening.getState().state;
 }
 
-/** Hook for screens to react to state changes. */
 export { useListening };
 
-/** True during TTS playback + 1.5s buffer afterwards. */
 export function isSpeaking(): boolean {
   return useListening.getState().speaking;
 }
 
-/* ── Stubs for the not-yet-wired pieces (Phase C slice 2+) ───────────────── */
-
 /**
- * Phase C slice 2 entry point: called when a final transcription arrives from
- * STT. Performs filtering, normalization, intent routing, and command
- * dispatch — currently stubbed to just log + transition back to idle so the
- * state machine is exercise-able end-to-end before STT lands.
+ * External entry point for transcribed text. Currently only called by tests
+ * and by the internal STT pipeline below — Phase C slice 3+ will also use
+ * it for the in-flight intent routing.
  */
-export async function onTranscription(text: string, confidence: number): Promise<void> {
+export async function processTranscription(text: string, confidence: number): Promise<void> {
   const language = getSettings().language;
 
-  // TTS echo guard
   if (useListening.getState().speaking) {
     logger.info(`ignored (TTS echo guard): "${snippet(text)}"`);
     return;
   }
-
-  // Only process when we're actively listening
-  const s = useListening.getState();
-  if (s.state !== "active") {
-    logger.info(`ignored (not listening): "${snippet(text)}"`);
-    return;
-  }
-
-  // Grace period
-  const elapsed = Date.now() - s.activatedAt;
-  if (elapsed < LISTENING_GRACE_MS) {
-    logger.info(`ignored (stale, ${elapsed}ms after activation): "${snippet(text)}"`);
-    return;
-  }
-
-  // Confidence filter
   if (confidence < MIN_CONFIDENCE) {
     logger.info(`ignored (low confidence ${confidence.toFixed(2)}): "${snippet(text)}"`);
+    await finishProcessing(messages.didntCatch[language]);
+    return;
+  }
+  if (!isValidTranscription(text, language)) {
+    logger.info(`ignored (filter rejected): "${snippet(text)}"`);
+    await finishProcessing(messages.didntCatch[language]);
     return;
   }
 
-  // TODO Phase C slice 2: isValidTranscription, normalize, routeIntent, dispatch.
-  // For now we just acknowledge so the state machine is exercise-able.
-  logger.info(`would route: "${snippet(text)}" (language=${language})`);
+  // TODO Phase C slice 3: normalize via /api/normalize, then route via
+  // /api/intent + dispatch to a command handler. For now we just echo.
+  logger.info(`would route: "${snippet(text)}" (language=${language}) — stub`);
   logActivity(`heard: "${snippet(text)}" (routing not yet wired)`);
-
-  clearTimer();
-  abortController = new AbortController();
-  useListening.setState({ state: "processing" });
-  try {
-    await playCue("got-it");
-    await speakWithEchoGuard(language === "ar"
-      ? `سمعتك تقول: ${text}`
-      : `I heard you say: ${text}`);
-  } finally {
-    useListening.setState({ state: "idle" });
-    abortController = null;
-  }
+  const reply = language === "ar"
+    ? `سمعتك تقول: ${text}`
+    : `I heard you say: ${text}`;
+  await finishProcessing(reply);
 }
 
 /* ── Internals ───────────────────────────────────────────────────────────── */
 
-async function enterActive(withCue: boolean): Promise<void> {
-  clearTimer();
+/**
+ * Single listening session: cue → mic capture → STT → text routing.
+ * Each session has its own activationToken; if it gets bumped (interrupt),
+ * we abandon all subsequent side effects.
+ */
+async function runListenSession(withCue: boolean): Promise<void> {
+  const myToken = ++activationToken;
+
+  // Enter "active" state immediately so the UI updates while the cue plays.
+  clearFailsafe();
   useListening.setState({ state: "active", activatedAt: Date.now() });
   logActivity("listening active");
 
@@ -206,33 +188,100 @@ async function enterActive(withCue: boolean): Promise<void> {
     try {
       await playCue("listening");
     } catch (err) {
-      // Cue failures are non-fatal — Phase B confirmed the speaker just works,
-      // but we may interrupt our own cue if the user double-swipes.
       logger.debug(`listening cue failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  if (myToken !== activationToken) return; // interrupted while cue played
+  if (useListening.getState().state !== "active") return;
 
-  // Reset activatedAt AFTER the cue so the grace window starts when the user
-  // could plausibly start talking — not while the chime is still playing.
-  if (useListening.getState().state === "active") {
-    useListening.setState({ activatedAt: Date.now() });
+  // Grace window starts AFTER the cue (so the chime doesn't eat into it).
+  useListening.setState({ activatedAt: Date.now() });
+
+  // Failsafe: if neither silence-end nor an explicit stop fires, force cancel.
+  failsafeTimer = setTimeout(() => {
+    if (myToken !== activationToken) return;
+    logger.info(`failsafe timeout (${LISTENING_TIMEOUT_MS}ms) — cancelling capture`);
+    void cancelCapture().catch(() => {});
+  }, LISTENING_TIMEOUT_MS);
+
+  // Start mic capture. Resolves with audio when silence detection fires,
+  // or null if too little audio captured / explicitly cancelled.
+  let capture;
+  try {
+    capture = await startCapture();
+  } catch (err) {
+    logger.error("startCapture failed:", err);
+    clearFailsafe();
+    if (myToken !== activationToken) return;
+    useListening.setState({ state: "idle" });
+    await finishProcessing(messages.generalError[getSettings().language]);
+    return;
   }
 
-  // Schedule the timeout. If a transcription arrives first, onTranscription
-  // clears this and transitions to "processing".
-  timeoutHandle = setTimeout(async () => {
-    if (useListening.getState().state !== "active") return;
+  clearFailsafe();
+  if (myToken !== activationToken) {
+    logger.debug("capture finished but session was interrupted — dropping result");
+    return;
+  }
+
+  if (!capture) {
+    logger.info("no audio captured → didn't catch that");
     useListening.setState({ state: "idle" });
-    logger.info("listening timed out");
-    logActivity("listening timed out");
-    await speakWithEchoGuard(messages.didntCatch[getSettings().language]);
-  }, LISTENING_TIMEOUT_MS);
+    await finishProcessing(messages.didntCatch[getSettings().language]);
+    return;
+  }
+
+  logger.info(`captured ${capture.durationMs}ms of audio → STT`);
+  useListening.setState({ state: "processing" });
+  logActivity(`captured ${capture.durationMs}ms → STT`);
+
+  // Got-it cue runs in parallel with the STT round-trip — feels responsive.
+  void playCue("got-it").catch(() => {});
+
+  // STT round-trip, abortable so an interrupt can cancel mid-flight.
+  sttAbort = new AbortController();
+  try {
+    const result = await sttTranscribe(capture.audioBase64, getSettings().language, sttAbort.signal);
+    if (myToken !== activationToken) return;
+    sttAbort = null;
+
+    const confidence = result.confidence ?? 1.0;
+    const text = result.text?.trim() ?? "";
+    if (text.length === 0) {
+      logger.info("STT returned empty text");
+      useListening.setState({ state: "idle" });
+      await finishProcessing(messages.didntCatch[getSettings().language]);
+      return;
+    }
+    logger.info(`STT: "${snippet(text)}" (lang=${result.languageCode}, conf=${confidence.toFixed(2)})`);
+    logActivity(`STT: "${snippet(text)}"`);
+
+    await processTranscription(text, confidence);
+  } catch (err) {
+    if (myToken !== activationToken) return; // we got interrupted
+    sttAbort = null;
+    if (err instanceof Error && err.message === "interrupted") return;
+    logger.error("STT failed:", err);
+    const lang = getSettings().language;
+    const detail = err instanceof RelayError ? ` (HTTP ${err.status})` : "";
+    logActivity(`STT failed${detail}`);
+    useListening.setState({ state: "idle" });
+    await finishProcessing(messages.generalError[lang]);
+  }
+}
+
+/** Speaks `reply` with echo guard, then drops back to idle. */
+async function finishProcessing(reply: string): Promise<void> {
+  useListening.setState({ state: "idle" });
+  await speakWithEchoGuard(reply);
 }
 
 async function cancelInternal(withCue: boolean): Promise<void> {
-  abortController?.abort();
-  abortController = null;
-  clearTimer();
+  activationToken++;
+  sttAbort?.abort();
+  sttAbort = null;
+  clearFailsafe();
+  await cancelCapture().catch(() => {});
   useListening.setState({ state: "idle" });
   logActivity("listening cancelled");
   if (withCue) {
@@ -243,10 +292,7 @@ async function cancelInternal(withCue: boolean): Promise<void> {
 }
 
 /**
- * Wraps speak() with the TTS echo guard: set speaking=true before playback,
- * keep it true for TTS_ECHO_BUFFER_MS after playback finishes (regardless of
- * outcome), then clear. Also stores the spoken text as the last-response for
- * later repeat.
+ * speak() + TTS echo guard. Stores the spoken text as last-response for repeat.
  */
 async function speakWithEchoGuard(text: string): Promise<void> {
   setLastResponse(text);
@@ -270,9 +316,11 @@ function snippet(text: string): string {
 
 /** Clears state on logout / disconnect / app reset. */
 export function reset(): void {
-  clearTimer();
-  abortController?.abort();
-  abortController = null;
+  activationToken++;
+  sttAbort?.abort();
+  sttAbort = null;
+  clearFailsafe();
+  void cancelCapture().catch(() => {});
   clearLastResponse();
   useListening.setState({ state: "idle", activatedAt: 0, speaking: false });
 }

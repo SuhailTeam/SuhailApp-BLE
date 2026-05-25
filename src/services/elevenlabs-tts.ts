@@ -121,5 +121,11 @@ export async function synthesize(opts: SynthesizeOptions): Promise<{ audio: Buff
   const arrayBuffer = await response.arrayBuffer();
   const audio = Buffer.from(arrayBuffer);
   logger.info(`Received ${audio.length} bytes of audio`);
+
+  // Spend tracking — TTS bills per character. Flash v2.5 uses ~0.5 credits/char,
+  // multilingual_v2 uses 1 credit/char. Greppable line for cost aggregation
+  // (`grep '\[Cost\]' suhail.log`).
+  logger.info(`[Cost] TTS ${opts.text.length}ch (model=${modelId})`);
+
   return { audio, format };
 }

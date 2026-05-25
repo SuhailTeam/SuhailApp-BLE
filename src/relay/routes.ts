@@ -2,6 +2,7 @@ import { routeCommand } from "../commands/command-router";
 import * as visionService from "../services/vision-service";
 import * as faceService from "../services/face-service";
 import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../services/elevenlabs-tts";
+import { transcribe } from "../services/elevenlabs-stt";
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
@@ -197,6 +198,36 @@ export function registerRelayRoutes(expressApp: any): void {
     res.json({ faceId, name: name.trim(), enrolledAt: new Date().toISOString() });
   }));
 
+  /* ── /api/stt ────────────────────────────────────────────────────────── */
+
+  router.post("/stt", wrap("stt", async (req, res) => {
+    if (!config.elevenLabsApiKey) {
+      res.status(503).json({ error: "STT not configured (ELEVENLABS_API_KEY missing)" });
+      return;
+    }
+    const { audio, language } = req.body ?? {};
+    if (typeof audio !== "string" || audio.length === 0) {
+      res.status(400).json({ error: "audio (base64 PCM s16le 16kHz mono) is required" });
+      return;
+    }
+    let pcm: Buffer;
+    try {
+      pcm = Buffer.from(audio, "base64");
+    } catch {
+      res.status(400).json({ error: "audio is not valid base64" });
+      return;
+    }
+    if (pcm.length < 1024) {
+      // < ~32ms of audio is almost certainly noise / empty buffer. Avoid the
+      // round-trip; Scribe will reject anyway.
+      res.status(400).json({ error: "audio buffer too small (need ≥ 1KB of PCM)" });
+      return;
+    }
+    const lang = language === "ar" || language === "en" ? language : undefined;
+    const result = await transcribe({ pcm, language: lang });
+    res.json(result);
+  }));
+
   /* ── /api/tts ────────────────────────────────────────────────────────── */
 
   router.post("/tts", wrap("tts", async (req, res) => {
@@ -234,5 +265,5 @@ export function registerRelayRoutes(expressApp: any): void {
   // Mount the router. Existing /api/* routes (status, activity, faces GET/PUT/DELETE,
   // settings, faces photo) remain registered on the parent app and are not affected.
   expressApp.use("/api", router);
-  logger.info("Relay routes registered: /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts");
+  logger.info("Relay routes registered: /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt");
 }
