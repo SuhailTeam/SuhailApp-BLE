@@ -16,10 +16,12 @@ See [`mobile/CLAUDE.md`](./CLAUDE.md) for architecture, contracts, and phased st
 
 ```bash
 cd mobile
-bun install
+bun install            # also applies patches/ via bun's "patchedDependencies"
 cp .env.example .env
 # Fill in EXPO_PUBLIC_RELAY_BASE_URL and EXPO_PUBLIC_RELAY_SHARED_SECRET
 ```
+
+> **Note on package manager.** This project uses bun, including for `patchedDependencies` (in `package.json`) which bun applies automatically on install. If you use npm or yarn, patches will silently NOT apply and iOS builds will fail on iOS 26.5+ (see [Known iOS gotchas](#known-ios-gotchas) below).
 
 ## Run locally (development build)
 
@@ -40,6 +42,18 @@ bun run start
 ```
 
 Once a dev build is installed on your device, future code changes hot-reload over Metro — you only need to rebuild when native dependencies change.
+
+## Known iOS gotchas
+
+These bit us during the first iOS build (Mentra Live + iPhone on iOS 26.5). They're all on the iOS toolchain / phone side, not the app, so they need a one-time fix per machine/device.
+
+| Symptom | Fix |
+|---|---|
+| `xcodebuild` error: `iOS <version> is not installed` | Open Xcode → **Settings → Components** and install the matching simulator/platform support. |
+| Build succeeds but won't launch from Xcode: device not eligible | iPhone: **Settings → Privacy & Security → Developer Mode** → enable, reboot when prompted. |
+| `expo-localization/ios/LocalizationModule.swift:93: switch must be exhaustive` (Swift compile error on iOS 26.5+) | **Handled in this repo** — `patches/expo-localization@16.0.1.patch` adds an `@unknown default` case. Bun applies it automatically on `bun install`. If you switch to npm/yarn the patch will NOT apply. |
+| After install: `Unable to launch ... invalid code signature` | iPhone: **Settings → General → VPN & Device Management** → tap your developer profile → Trust. |
+| Metro: `Unable to resolve "@mentra/bluetooth-sdk/react"` | **Handled in this repo** — `metro.config.js` enables `config.resolver.unstable_enablePackageExports = true`. If Metro caches an older config, clear it: `bunx expo start --dev-client -c`. |
 
 ## EAS cloud builds (one-time setup)
 
