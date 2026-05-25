@@ -6,6 +6,7 @@ import { useSuhailBluetooth } from "../ble/connection";
 import { useBatteryStatus, useButtonPress, useTouchEvent } from "../ble/events";
 import { useActivity } from "../state/activity";
 import { useSettings } from "../state/settings";
+import { activate, interruptAndListen, repeatLast, useListening } from "../state/listening";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("HomeScreen");
@@ -15,22 +16,35 @@ export default function HomeScreen() {
   const language = useSettings((s) => s.language);
   const logEvent = useActivity((s) => s.log);
 
-  // Phase B debug observers — let us see button/swipe/battery events flowing.
-  // Phase C/D will route these into the listening state machine + command dispatcher.
+  // Buttons + swipes drive the listening state machine.
+  // Battery events stay in the activity log for debugging.
   useButtonPress(useCallback((event) => {
     logger.info(`button ${event.buttonId} ${event.pressType}`);
     logEvent({ type: "ble", command: `${event.buttonId}-${event.pressType}`, event: `Button: ${event.buttonId} ${event.pressType}` });
+    if (event.buttonId === "left" && event.pressType === "short") {
+      void interruptAndListen();
+    } else if (event.buttonId === "left" && event.pressType === "long") {
+      void repeatLast();
+    }
+    // right/camera button reserved for native gallery — don't intercept.
   }, [logEvent]));
 
   useTouchEvent(useCallback((event) => {
     logger.info(`touch ${event.gestureName}`);
     logEvent({ type: "ble", command: event.gestureName, event: `Swipe: ${event.gestureName}` });
+    if (event.gestureName === "forward_swipe") {
+      void activate();
+    } else if (event.gestureName === "backward_swipe") {
+      void repeatLast();
+    }
   }, [logEvent]));
 
   useBatteryStatus(useCallback((event) => {
     logger.info(`battery ${event.level}% charging=${event.charging}`);
     logEvent({ type: "ble", command: "battery", event: `Battery: ${event.level}% ${event.charging ? "(charging)" : ""}` });
   }, [logEvent]));
+
+  const listeningState = useListening((s) => s.state);
 
   const isConnected = session.glasses.connected;
   const stateLabel = session.glasses.connection.state;
@@ -48,6 +62,11 @@ export default function HomeScreen() {
         firmware: "البرنامج الثابت",
         commandsTitle: "الأوامر الصوتية",
         commandsBody: "اسحب للأمام على النظارة، ثم تكلم: «صف ما حولي»، «اقرأ»، «من هذا؟»، «ابحث عن مفاتيحي»، «عدّ النقود»، «اللون».",
+        testListening: "جرب الاستماع",
+        testRepeat: "كرر آخر رد",
+        listenIdle: "خامل",
+        listenActive: "ينصت",
+        listenProcessing: "يعالج",
       }
     : {
         connected: "Connected",
@@ -62,7 +81,18 @@ export default function HomeScreen() {
         commandsTitle: "Voice commands",
         commandsBody:
           "Swipe forward on the glasses, then speak: \"describe my surroundings\", \"read this\", \"who is this?\", \"find my keys\", \"count money\", \"color\".",
+        testListening: "Test listening",
+        testRepeat: "Repeat last",
+        listenIdle: "idle",
+        listenActive: "listening",
+        listenProcessing: "processing",
       };
+
+  const listenLabel = listeningState === "active"
+    ? labels.listenActive
+    : listeningState === "processing"
+      ? labels.listenProcessing
+      : labels.listenIdle;
 
   const onScan = useCallback(async () => {
     try {
@@ -129,6 +159,21 @@ export default function HomeScreen() {
         </View>
 
         {session.busy && <ActivityIndicator color="#38BDF8" style={{ marginTop: 16 }} />}
+
+        <View style={styles.listenCard}>
+          <View style={styles.listenRow}>
+            <View style={[styles.listenDot, listenDotStyle(listeningState)]} />
+            <Text style={styles.listenText}>{listenLabel}</Text>
+          </View>
+          <View style={styles.listenButtons}>
+            <Pressable style={styles.listenBtn} onPress={() => void activate()}>
+              <Text style={styles.listenBtnText}>{labels.testListening}</Text>
+            </Pressable>
+            <Pressable style={styles.listenBtn} onPress={() => void repeatLast()}>
+              <Text style={styles.listenBtnText}>{labels.testRepeat}</Text>
+            </Pressable>
+          </View>
+        </View>
 
         {session.scan.devices.length > 0 && (
           <View style={styles.scanResults}>
@@ -210,4 +255,19 @@ const styles = StyleSheet.create({
   tipsCard: { backgroundColor: "#0F172A", padding: 16, borderRadius: 12, borderColor: "#1E293B", borderWidth: 1, marginTop: 8 },
   tipsTitle: { color: "#F8FAFC", fontSize: 16, fontWeight: "600", marginBottom: 6 },
   tipsBody: { color: "#94A3B8", fontSize: 14, lineHeight: 20 },
+  listenCard: { backgroundColor: "#0F172A", padding: 14, borderRadius: 12, borderColor: "#1E293B", borderWidth: 1, gap: 10 },
+  listenRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  listenDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#475569" },
+  listenDotActive: { backgroundColor: "#38BDF8" },
+  listenDotProcessing: { backgroundColor: "#A78BFA" },
+  listenText: { color: "#CBD5E1", fontSize: 14, fontVariant: ["tabular-nums"] },
+  listenButtons: { flexDirection: "row", gap: 8 },
+  listenBtn: { flex: 1, backgroundColor: "#1E293B", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
+  listenBtnText: { color: "#F8FAFC", fontSize: 13, fontWeight: "500" },
 });
+
+function listenDotStyle(state: "idle" | "active" | "processing") {
+  if (state === "active") return styles.listenDotActive;
+  if (state === "processing") return styles.listenDotProcessing;
+  return undefined;
+}
