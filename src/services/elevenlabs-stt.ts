@@ -102,6 +102,13 @@ export async function transcribe(opts: ScribeOptions): Promise<ScribeResult> {
   const text = data.text ?? "";
   logger.info(`Scribe result: ${text.length}ch, lang=${data.language_code ?? "?"} (${text.slice(0, 60).replace(/\s+/g, " ")}${text.length > 60 ? "…" : ""})`);
 
+  // Spend tracking — Scribe bills by audio seconds. Starter plan ($6/mo) gives
+  // ~310 min/month. Greppable single line so it's easy to tail / aggregate
+  // (`grep '\[Cost\]' suhail.log`). Print regardless of result text — we get
+  // billed even when the audio transcribes to empty.
+  const seconds = (durationMs / 1000).toFixed(2);
+  logger.info(`[Cost] STT ${seconds}s audio (model=${modelId})`);
+
   return {
     text,
     languageCode: data.language_code,
