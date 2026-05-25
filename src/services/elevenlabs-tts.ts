@@ -87,11 +87,21 @@ export async function synthesize(opts: SynthesizeOptions): Promise<{ audio: Buff
   }
 
   const voiceId = resolveVoiceId(opts);
-  const format: AudioFormat = opts.format ?? "mp3_44100_128";
+  // 64kbps default (was 128). For voice through small glasses speakers the
+  // quality drop is barely audible and payload halves — meaningful network
+  // transfer time win on every TTS round-trip.
+  const format: AudioFormat = opts.format ?? "mp3_44100_64";
   const modelId = opts.modelId ?? config.elevenLabsModel;
   const speed = clampSpeed(opts.speed);
 
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${format}`;
+  // /stream endpoint + optimize_streaming_latency tells ElevenLabs to start
+  // emitting audio sooner (sacrificing some quality smoothing). 3 = "max
+  // latency optimisation, may impact text normalization". Worth it for voice
+  // commands where snappiness > pronunciation perfection.
+  // Note: we still buffer the full response below — this just speeds up
+  // ElevenLabs' first-byte time on their side. True stream-through to the
+  // client is a separate refactor (see PR description).
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=${format}&optimize_streaming_latency=3`;
 
   const body: Record<string, unknown> = {
     text: opts.text,
