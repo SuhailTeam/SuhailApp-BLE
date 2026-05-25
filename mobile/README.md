@@ -54,6 +54,15 @@ These bit us during the first iOS build (Mentra Live + iPhone on iOS 26.5). They
 | `expo-localization/ios/LocalizationModule.swift:93: switch must be exhaustive` (Swift compile error on iOS 26.5+) | **Handled in this repo** — `patches/expo-localization@16.0.1.patch` adds an `@unknown default` case. Bun applies it automatically on `bun install`. If you switch to npm/yarn the patch will NOT apply. |
 | After install: `Unable to launch ... invalid code signature` | iPhone: **Settings → General → VPN & Device Management** → tap your developer profile → Trust. |
 | Metro: `Unable to resolve "@mentra/bluetooth-sdk/react"` | **Handled in this repo** — `metro.config.js` enables `config.resolver.unstable_enablePackageExports = true`. If Metro caches an older config, clear it: `bunx expo start --dev-client -c`. |
+| `expo run:ios` warns `Unexpected devicectl JSON version` on Xcode 26 | Non-fatal. Pass the hardware UDID (from `xcrun devicectl list devices` → "Identifier" column on the row with the iPhone, format `00008150-…`) explicitly: `bunx expo run:ios --device 00008150-…`. Don't use the CoreDevice UUID — different field. |
+| `bunx expo prebuild --clean` fails at `withAndroidIcons` with `ENOENT ./assets/icon.png` | iOS-only build: `bunx expo prebuild --clean --platform ios`. The Android adaptive icon block was removed in this repo until we have a real Android target — re-add to `app.config.ts` once an icon asset exists. |
+
+## Known relay gotchas
+
+| Symptom | Fix |
+|---|---|
+| `/api/tts` returns HTTP 402 "Free users cannot use library voices via the API." | ElevenLabs Free tier blocks stock voices (Rachel / Adam) via API. Either upgrade to **Starter** ($6/mo) or clone a custom voice on Free and set `ELEVENLABS_DEFAULT_VOICE_ID` to its ID. See root `.env.example`. |
+| Server logs spam `Frontend token verification failed: Invalid frontend token format` on every relay request | **Cosmetic, harmless.** The MentraOS SDK's webview-token middleware runs on every request the AppServer's Express handles, and complains when our `/api/*` calls don't carry its token (they don't need to — we authenticate via `X-Device-Id` + HMAC Bearer in `src/relay/auth.ts`). Relay requests succeed normally. To silence later we'd need to either filter the SDK's logger or move the relay to its own Express app — neither is worth the churn pre-Phase D. |
 
 ## EAS cloud builds (one-time setup)
 

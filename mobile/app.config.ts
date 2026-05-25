@@ -32,10 +32,14 @@ const config: ExpoConfig = {
       "android.permission.RECORD_AUDIO",
       "android.permission.FOREGROUND_SERVICE",
     ],
-    adaptiveIcon: {
-      foregroundImage: "./assets/icon.png",
-      backgroundColor: "#0F172A",
-    },
+    // TODO: add adaptiveIcon when we have a real Android build target.
+    //   adaptiveIcon: {
+    //     foregroundImage: "./assets/icon.png",
+    //     backgroundColor: "#0F172A",
+    //   },
+    // Removed for now because the file doesn't exist yet and Expo's
+    // prebuild fails hard at withAndroidIcons with ENOENT. iOS prebuild
+    // is unaffected (no ios.icon set either — default is fine).
   },
   plugins: [
     "@mentra/bluetooth-sdk",
