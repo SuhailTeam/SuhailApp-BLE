@@ -5,11 +5,12 @@ import type { CommandType, IntentType, ClassificationResult, RouteResult } from 
 const logger = new Logger("CommandRouter");
 
 /** Timeout for the LLM classification call (ms).
- *  Bumped from 2000 → 2500 after PR #7 hardware test: OpenRouter LLM cold-start
- *  consistently hit 2.7-2.9s for the first 1-2 requests after the server boots,
- *  then warm requests stayed well under 1s. 2500ms catches the slow first call
- *  without affecting steady-state behaviour. */
-const CLASSIFY_TIMEOUT_MS = 2_500;
+ *  Bumped 2000 → 2500 after PR #7, then 2500 → 3000 after PR #12+#13: even
+ *  with the larger budget, occasional cold-start trials still hit the limit
+ *  ("LLM classification aborted/timed out" → keyword fallback fired cleanly,
+ *  which works, but the LLM result would be more accurate). 3000ms covers
+ *  the observed 2.7-2.9s cold-start range with a small safety margin. */
+const CLASSIFY_TIMEOUT_MS = 3_000;
 
 /** Maps LLM intent names to CommandType values */
 const intentToCommand: Record<Exclude<IntentType, "unknown">, CommandType> = {
