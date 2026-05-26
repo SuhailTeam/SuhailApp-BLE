@@ -39,6 +39,47 @@ export interface CapturedPhoto {
  * when the glasses can't take a photo (camera busy, hardware issue, etc.)
  * rather than waiting out the long-poll.
  */
+/**
+ * Resolves a CapturedPhoto from either a pre-capture in flight (started on
+ * the user's swipe, before STT+intent finish) OR a fresh capture if the
+ * pre-capture isn't ready in time / failed / wasn't started.
+ *
+ * The cloud version uses the same pattern (src/app.ts pre-fires the photo
+ * on swipe and races it against handleTranscription) — saves the ~3-5s of
+ * photo + BLE upload that would otherwise serialize after intent.
+ *
+ * `preCaptureWaitMs` caps how long we'll wait for a slow pre-capture before
+ * giving up and firing fresh. Default 3000ms matches the cloud value.
+ */
+export async function resolvePhoto(opts: {
+  preCapture?: Promise<CapturedPhoto> | null;
+  signal?: AbortSignal;
+  size?: "small" | "medium" | "large";
+  compress?: "none" | "medium" | "heavy";
+  preCaptureWaitMs?: number;
+}): Promise<CapturedPhoto> {
+  if (opts.preCapture) {
+    const wait = opts.preCaptureWaitMs ?? 3_000;
+    // Race the pre-capture against a budget. We can't just `await preCapture`
+    // because a slow pre-capture would lock us into its remaining time on top
+    // of itself — better to fire a fresh one in parallel and take whichever
+    // finishes first. Errors swallowed; we fall through to fresh capture.
+    const raceWinner = await Promise.race([
+      opts.preCapture.then(
+        (photo) => ({ kind: "ready" as const, photo }),
+        (err) => ({ kind: "failed" as const, err }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => setTimeout(() => resolve({ kind: "timeout" }), wait)),
+    ]);
+    if (raceWinner.kind === "ready") {
+      logger.info(`using pre-captured photo ${raceWinner.photo.photoToken.slice(0, 8)}...`);
+      return raceWinner.photo;
+    }
+    logger.info(`pre-capture ${raceWinner.kind === "failed" ? "failed" : "missed budget"} — capturing fresh`);
+  }
+  return capturePhoto({ signal: opts.signal, size: opts.size, compress: opts.compress });
+}
+
 export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" | "medium" | "large"; compress?: "none" | "medium" | "heavy" } = {}): Promise<CapturedPhoto> {
   const size = opts.size ?? "large";
   const compress = opts.compress ?? "medium";

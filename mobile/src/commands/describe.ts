@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { describeScene, type ImageSource } from "../relay/vision";
 import { recognizeAllFaces } from "../relay/faces";
 import type { Language } from "../i18n/messages";
@@ -45,12 +45,16 @@ function truncateAtBoundary(text: string, maxChars: number): string {
  * Throws on capture or vision failure; caller catches and speaks the
  * generalError message.
  */
-export async function executeDescribe(opts: { language: Language; signal?: AbortSignal }): Promise<string> {
-  const { language, signal } = opts;
+export async function executeDescribe(opts: {
+  language: Language;
+  signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
+}): Promise<string> {
+  const { language, signal, preCapture } = opts;
 
-  // Step 1: trigger the BLE photo capture. Resolves with a server-side
-  // photoToken once glasses have uploaded successfully.
-  const photo = await capturePhoto({ signal });
+  // Step 1: photo. Uses the pre-capture started on swipe if it's ready,
+  // otherwise fires fresh. Saves ~3-5s end-to-end when the pre-capture wins.
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const source: ImageSource = { photoToken: photo.photoToken };
