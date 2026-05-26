@@ -52,10 +52,20 @@ export function needsScriptNormalization(text: string, lang: Language): boolean 
  * Surfaced in PR #7 hardware test:
  *   "Describe my surroundings (clicks tongue)."
  *
- * Removes "(<anything but parens>)" along with the surrounding whitespace.
- * Caller should re-check `isValidTranscription` after stripping to catch
- * the all-annotation case ("(coughs)" → "" → reject).
+ * Three-pass cleanup so we don't leave orphan whitespace or punctuation
+ * (the original single-regex version produced "Describe my surroundings ."
+ * with a stray space before the period — PR #10 review finding #4):
+ *
+ *   1. replace "(...)" + surrounding whitespace with a single space
+ *      (keep word separation when annotation is mid-sentence)
+ *   2. drop any space that ended up before a sentence-final mark
+ *      (.,!?;:) — fixes "surroundings ." → "surroundings."
+ *   3. collapse runs of whitespace + trim ends
  */
 export function stripAnnotations(text: string): string {
-  return text.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  return text
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }

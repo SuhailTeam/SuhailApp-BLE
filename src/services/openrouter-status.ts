@@ -49,7 +49,15 @@ export async function probeOpenRouterStatus(): Promise<void> {
       const total = data.data?.total_credits ?? 0;
       const used = data.data?.total_usage ?? 0;
       const remaining = Math.max(0, total - used);
-      logger.info(`[Cost] OpenRouter status: OK ($${remaining.toFixed(4)} remaining, $${used.toFixed(4)} used of $${total.toFixed(4)})`);
+      // Free-tier OpenRouter accounts have no spending limit set — total_credits
+      // comes back as 0, which makes the "$X remaining" line read as broken
+      // when the account is actually fine. Render that case explicitly.
+      // PR #10 review finding #3.
+      if (total === 0) {
+        logger.info(`[Cost] OpenRouter status: OK (free-tier, no $ limit; $${used.toFixed(4)} used so far)`);
+      } else {
+        logger.info(`[Cost] OpenRouter status: OK ($${remaining.toFixed(4)} remaining, $${used.toFixed(4)} used of $${total.toFixed(4)})`);
+      }
     } finally {
       clearTimeout(timeout);
     }
