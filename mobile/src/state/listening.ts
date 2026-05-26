@@ -14,6 +14,8 @@ import { executeFind } from "../commands/find";
 import { executeWho } from "../commands/who";
 import { executeVqa } from "../commands/vqa";
 import { executeMoney } from "../commands/money";
+import { executeEnrollStep1, completeEnrollment } from "../commands/enroll";
+import { clearPending as clearPendingEnrollment, hasPending as hasPendingEnrollment, interrupt as interruptEnrollment } from "../state/enrollment";
 import { RelayError } from "../relay/client";
 import { messages, type Language } from "../i18n/messages";
 import { useActivity } from "./activity";
@@ -37,6 +39,12 @@ export const TTS_ECHO_BUFFER_MS = 1_500;
 
 /** Minimum confidence to accept a transcription. */
 export const MIN_CONFIDENCE = 0.55;
+
+/**
+ * Face-enrollment step 1 says "please say the person's name" and waits this
+ * long before giving up. Mirrors the cloud's ENROLLMENT_TIMEOUT_MS.
+ */
+export const ENROLLMENT_TIMEOUT_MS = 30_000;
 
 export type ListeningState = "idle" | "active" | "processing";
 
@@ -84,6 +92,32 @@ function abortPreCapture(): void {
   preCapturePromise = null;
 }
 
+/* ── Enrollment timeout — owned here so the speech path stays in this file ── */
+
+let enrollmentTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startEnrollmentTimeout(language: Language): void {
+  clearEnrollmentTimeout();
+  enrollmentTimer = setTimeout(async () => {
+    enrollmentTimer = null;
+    if (!hasPendingEnrollment()) return; // already consumed / cancelled
+    logger.info(`enrollment timed out after ${ENROLLMENT_TIMEOUT_MS}ms`);
+    logActivity("enrollment timed out");
+    clearPendingEnrollment();
+    const msg = language === "ar"
+      ? "انتهت مهلة تسجيل الوجه. حاول مرة ثانية."
+      : "Face enrollment timed out. Please try again.";
+    await speakWithEchoGuard(msg);
+  }, ENROLLMENT_TIMEOUT_MS);
+}
+
+function clearEnrollmentTimeout(): void {
+  if (enrollmentTimer) {
+    clearTimeout(enrollmentTimer);
+    enrollmentTimer = null;
+  }
+}
+
 function startPreCapture(): void {
   // Defensive — should only fire from a fresh idle state.
   abortPreCapture();
@@ -128,6 +162,8 @@ export async function activate(): Promise<void> {
     sttAbort?.abort();
     sttAbort = null;
     abortPreCapture();
+    clearEnrollmentTimeout();
+    if (interruptEnrollment()) logActivity("enrollment interrupted by swipe");
     await cancelCapture().catch(() => {});
     await stopAllAudio().catch(() => {});
     useListening.setState({ speaking: false });
@@ -156,6 +192,8 @@ export async function interruptAndListen(): Promise<void> {
   sttAbort?.abort();
   sttAbort = null;
   abortPreCapture();
+  clearEnrollmentTimeout();
+  if (interruptEnrollment()) logActivity("enrollment interrupted (left short press)");
   await cancelCapture().catch(() => {});
   await stopAllAudio().catch(() => {});
   useListening.setState({ speaking: false });
@@ -213,6 +251,26 @@ export async function processTranscription(text: string, confidence: number): Pr
   if (!isValidTranscription(text, language)) {
     logger.info(`ignored (filter rejected): "${snippet(text)}"`);
     await finishProcessing(messages.didntCatch[language]);
+    return;
+  }
+
+  // Face-enrollment intercept: if step 1 stashed a photo, this transcription
+  // is the NAME, not a new command — skip the classifier entirely. Mirrors
+  // src/app.ts:380 (cloud version's `hasPendingEnrollment` check).
+  if (hasPendingEnrollment()) {
+    logger.info(`enrollment step 2: name="${snippet(text)}"`);
+    logActivity(`enrollment name: "${snippet(text)}"`);
+    clearEnrollmentTimeout();
+    const reply = await completeEnrollment({ name: text, language, signal: sttAbort?.signal });
+    if (reply === null) {
+      // Echo / concurrent / interrupted — don't speak. If pending state
+      // survived (echo path), restart the timeout so the user has another
+      // 30s to retry the name.
+      if (hasPendingEnrollment()) startEnrollmentTimeout(language);
+      useListening.setState({ state: "idle" });
+      return;
+    }
+    await finishProcessing(reply);
     return;
   }
 
@@ -320,13 +378,17 @@ async function dispatchCommand(
     case "visual-qa":
       return executeVqa({ language, question: params?.question, signal, preCapture });
 
-    // Stateful 2-step (capture → ask for name → save) — slice 3d will replace
-    // this with a real handler. Until then, speak the preview so users get
-    // explicit "coming soon" feedback instead of silence. NOTE: this path
-    // wastes the pre-capture (we just discarded it above) — slice 3d will
-    // actually use it for the enrollment photo.
-    case "face-enroll":
-      return describeRoutedCommand(command, params, language);
+    case "face-enroll": {
+      // Stateful 2-step. Step 1 captures + stashes the photo and returns
+      // the "say the name" prompt. We schedule the 30s timeout immediately
+      // after so the listening state machine knows when the user gave up.
+      // Step 2 fires when the NEXT transcription arrives — the intercept
+      // at the top of processTranscription routes it to completeEnrollment.
+      const prompt = await executeEnrollStep1({ language, signal, preCapture });
+      startEnrollmentTimeout(language);
+      logActivity("enrollment step 1 → awaiting name (30s)");
+      return prompt;
+    }
 
     case "unknown":
     default:
@@ -495,6 +557,8 @@ async function cancelInternal(withCue: boolean): Promise<void> {
   sttAbort?.abort();
   sttAbort = null;
   abortPreCapture();
+  clearEnrollmentTimeout();
+  if (interruptEnrollment()) logActivity("enrollment interrupted (cancel)");
   clearFailsafe();
   await cancelCapture().catch(() => {});
   useListening.setState({ state: "idle" });
@@ -535,6 +599,8 @@ export function reset(): void {
   sttAbort?.abort();
   sttAbort = null;
   abortPreCapture();
+  clearEnrollmentTimeout();
+  interruptEnrollment();
   clearFailsafe();
   void cancelCapture().catch(() => {});
   clearLastResponse();
