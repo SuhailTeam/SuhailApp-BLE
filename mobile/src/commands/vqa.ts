@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { answerVisualQuestion } from "../relay/vision";
 import type { Language } from "../i18n/messages";
 import { Logger } from "../utils/logger";
@@ -17,11 +17,12 @@ export async function executeVqa(opts: {
   language: Language;
   question?: string;
   signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
-  const { language, signal } = opts;
+  const { language, signal, preCapture } = opts;
   const question = (opts.question ?? "").trim() || (language === "ar" ? "ماذا ترى؟" : "What do you see?");
 
-  const photo = await capturePhoto({ signal });
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const result = await answerVisualQuestion({ photoToken: photo.photoToken }, question, language, signal);

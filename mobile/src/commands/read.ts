@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { ocr } from "../relay/vision";
 import type { Language } from "../i18n/messages";
 import { Logger } from "../utils/logger";
@@ -36,10 +36,11 @@ export async function executeRead(opts: {
   language: Language;
   context?: string;
   signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
-  const { language, context, signal } = opts;
+  const { language, context, signal, preCapture } = opts;
 
-  const photo = await capturePhoto({ signal });
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const { text } = await ocr({ photoToken: photo.photoToken }, language, context, signal);

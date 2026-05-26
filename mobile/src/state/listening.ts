@@ -3,6 +3,7 @@ import { playCue } from "../audio/cues";
 import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
 import { cancelCapture, startCapture } from "../ble/mic";
+import { capturePhoto, type CapturedPhoto } from "../ble/camera";
 import { transcribe as sttTranscribe } from "../relay/stt";
 import { classifyIntent, type CommandType } from "../relay/intent";
 import { normalize } from "../relay/normalize";
@@ -60,6 +61,45 @@ let sttAbort: AbortController | null = null;
  *  taking side effects so we don't act on stale captures after an interrupt. */
 let activationToken = 0;
 
+/**
+ * Photo capture started on swipe (BEFORE STT + intent finish). Races against
+ * the dispatch path — if it lands first, the command uses it; otherwise the
+ * command fires a fresh capture. Saves ~3-5s on the happy path.
+ *
+ * Aborted on all the cancel paths so an interrupted session doesn't leak the
+ * upload request to the glasses (server's photo cache TTL would clean up the
+ * minted token anyway, but cleaner to abort the BLE-side work).
+ */
+let preCapturePromise: Promise<CapturedPhoto> | null = null;
+let preCaptureAbort: AbortController | null = null;
+
+function abortPreCapture(): void {
+  if (preCaptureAbort) {
+    preCaptureAbort.abort();
+    preCaptureAbort = null;
+  }
+  // Don't null preCapturePromise — let the in-flight Promise reject so any
+  // pending resolvePhoto() call sees the failure cleanly. Cleared when the
+  // session ends (either successful dispatch or explicit reset).
+  preCapturePromise = null;
+}
+
+function startPreCapture(): void {
+  // Defensive — should only fire from a fresh idle state.
+  abortPreCapture();
+  preCaptureAbort = new AbortController();
+  const signal = preCaptureAbort.signal;
+  const p = capturePhoto({ signal });
+  // Belt-and-braces: attach a side .catch so a session cancelled mid-capture
+  // doesn't leave the rejection unhandled (no one is awaiting preCapturePromise
+  // anymore at that point — abortPreCapture just nulled it). resolvePhoto's
+  // own race handler swallows rejections too, so this is purely defensive.
+  p.catch((err) => {
+    logger.debug(`pre-capture settled with error: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  preCapturePromise = p;
+}
+
 function clearFailsafe(): void {
   if (failsafeTimer) {
     clearTimeout(failsafeTimer);
@@ -87,6 +127,7 @@ export async function activate(): Promise<void> {
     activationToken++;
     sttAbort?.abort();
     sttAbort = null;
+    abortPreCapture();
     await cancelCapture().catch(() => {});
     await stopAllAudio().catch(() => {});
     useListening.setState({ speaking: false });
@@ -114,6 +155,7 @@ export async function interruptAndListen(): Promise<void> {
   activationToken++;
   sttAbort?.abort();
   sttAbort = null;
+  abortPreCapture();
   await cancelCapture().catch(() => {});
   await stopAllAudio().catch(() => {});
   useListening.setState({ speaking: false });
@@ -249,31 +291,40 @@ async function dispatchCommand(
   language: Language,
 ): Promise<string> {
   const signal = sttAbort?.signal;
+  // Hand off the pre-capture started at swipe time. Each command's resolvePhoto
+  // races it against a 3s budget; if it isn't ready, fires a fresh capture.
+  // We snapshot + null the module slot here so a stale subsequent dispatch
+  // can't reuse the same promise.
+  const preCapture = preCapturePromise;
+  preCapturePromise = null;
+
   switch (command) {
     case "scene-summarize":
-      return executeDescribe({ language, signal });
+      return executeDescribe({ language, signal, preCapture });
 
     case "ocr-read-text":
-      return executeRead({ language, context: params?.context, signal });
+      return executeRead({ language, context: params?.context, signal, preCapture });
 
     case "color-detect":
-      return executeColor({ language, signal });
+      return executeColor({ language, signal, preCapture });
 
     case "find-object":
-      return executeFind({ language, objectName: params?.objectName, signal });
+      return executeFind({ language, objectName: params?.objectName, signal, preCapture });
 
     case "face-recognize":
-      return executeWho({ language, signal });
+      return executeWho({ language, signal, preCapture });
 
     case "currency-recognize":
-      return executeMoney({ language, signal });
+      return executeMoney({ language, signal, preCapture });
 
     case "visual-qa":
-      return executeVqa({ language, question: params?.question, signal });
+      return executeVqa({ language, question: params?.question, signal, preCapture });
 
     // Stateful 2-step (capture → ask for name → save) — slice 3d will replace
     // this with a real handler. Until then, speak the preview so users get
-    // explicit "coming soon" feedback instead of silence.
+    // explicit "coming soon" feedback instead of silence. NOTE: this path
+    // wastes the pre-capture (we just discarded it above) — slice 3d will
+    // actually use it for the enrollment photo.
     case "face-enroll":
       return describeRoutedCommand(command, params, language);
 
@@ -337,6 +388,13 @@ async function runListenSession(withCue: boolean): Promise<void> {
   clearFailsafe();
   useListening.setState({ state: "active", activatedAt: Date.now() });
   logActivity("listening active");
+
+  // Kick the photo capture in parallel with everything below — by the time
+  // STT + intent finish (~5s for short utterances), the photo is typically
+  // ready, so dispatch doesn't pay the ~3-5s capture + upload latency.
+  // resolvePhoto() in each command falls back to a fresh capture if the
+  // pre-capture isn't ready in 3s or failed.
+  startPreCapture();
 
   if (withCue) {
     try {
@@ -436,6 +494,7 @@ async function cancelInternal(withCue: boolean): Promise<void> {
   activationToken++;
   sttAbort?.abort();
   sttAbort = null;
+  abortPreCapture();
   clearFailsafe();
   await cancelCapture().catch(() => {});
   useListening.setState({ state: "idle" });
@@ -475,6 +534,7 @@ export function reset(): void {
   activationToken++;
   sttAbort?.abort();
   sttAbort = null;
+  abortPreCapture();
   clearFailsafe();
   void cancelCapture().catch(() => {});
   clearLastResponse();

@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { recognizeCurrency, type CurrencyBill, type CurrencyResult } from "../relay/vision";
 import type { Language } from "../i18n/messages";
 import { Logger } from "../utils/logger";
@@ -29,10 +29,11 @@ const UNKNOWN_CURRENCY_MESSAGE = {
 export async function executeMoney(opts: {
   language: Language;
   signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
-  const { language, signal } = opts;
+  const { language, signal, preCapture } = opts;
 
-  const photo = await capturePhoto({ signal });
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const result = await recognizeCurrency({ photoToken: photo.photoToken }, signal);

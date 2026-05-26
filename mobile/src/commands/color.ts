@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { detectColor } from "../relay/vision";
 import type { Language } from "../i18n/messages";
 import { Logger } from "../utils/logger";
@@ -13,10 +13,11 @@ const logger = new Logger("Cmd.Color");
 export async function executeColor(opts: {
   language: Language;
   signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
-  const { language, signal } = opts;
+  const { language, signal, preCapture } = opts;
 
-  const photo = await capturePhoto({ signal });
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const result = await detectColor({ photoToken: photo.photoToken }, language, signal);

@@ -1,4 +1,4 @@
-import { capturePhoto } from "../ble/camera";
+import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { detectObject } from "../relay/vision";
 import type { Language } from "../i18n/messages";
 import { Logger } from "../utils/logger";
@@ -15,11 +15,12 @@ export async function executeFind(opts: {
   language: Language;
   objectName?: string;
   signal?: AbortSignal;
+  preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
-  const { language, signal } = opts;
+  const { language, signal, preCapture } = opts;
   const objectName = (opts.objectName ?? "").trim() || "object";
 
-  const photo = await capturePhoto({ signal });
+  const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");
 
   const result = await detectObject({ photoToken: photo.photoToken }, objectName, language, signal);
