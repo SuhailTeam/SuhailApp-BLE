@@ -22,6 +22,7 @@ import { capturePhoto } from "./utils/image-utils";
 import { startTimeline, endTimeline, mark } from "./utils/timeline";
 import { getSettings, updateSettings, initSettingsFromStorage, clearSettingsSession } from "./services/settings-store";
 import { registerRelayRoutes } from "./relay/routes";
+import { probeOpenRouterStatus } from "./services/openrouter-status";
 
 const logger = new Logger("SuhailApp");
 
@@ -126,6 +127,10 @@ export class SuhailApp extends AppServer {
   async initialize(): Promise<void> {
     await this.ai.loadPersistedFaces();
     await ensureCuesGenerated();
+    // Probe OpenRouter so an expired/over-quota key surfaces loudly at boot
+    // instead of silently degrading intent classification + normalize to
+    // their fallback paths. Best-effort, never blocks startup.
+    await probeOpenRouterStatus();
   }
 
   /**
