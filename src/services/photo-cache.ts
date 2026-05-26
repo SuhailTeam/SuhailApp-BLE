@@ -69,7 +69,11 @@ export function mintToken(deviceId: string): { photoToken: string; expiresAt: nu
   return { photoToken, expiresAt };
 }
 
-/** Stores photo bytes against an existing token. Returns false if token is unknown or expired. */
+/** Waiters keyed by token — woken by storeBytes when the glasses finish uploading. */
+const waiters = new Map<string, Array<(bytes: Buffer | null) => void>>();
+
+/** Stores photo bytes against an existing token. Returns false if token is unknown or expired.
+ *  Wakes any waiters registered via waitForBytes() with the new bytes. */
 export function storeBytes(photoToken: string, bytes: Buffer): boolean {
   const entry = cache.get(photoToken);
   if (!entry) return false;
@@ -80,7 +84,63 @@ export function storeBytes(photoToken: string, bytes: Buffer): boolean {
   entry.bytes = bytes;
   entry.uploadedAt = Date.now();
   logger.debug(`stored ${bytes.length} bytes for ${photoToken.slice(0, 8)}...`);
+
+  const arr = waiters.get(photoToken);
+  if (arr) {
+    waiters.delete(photoToken);
+    for (const resolver of arr) resolver(bytes);
+  }
   return true;
+}
+
+/**
+ * Long-poll for a photo upload. Resolves with bytes when storeBytes() fires for
+ * this token, with null on timeout / unknown token / expiry.
+ *
+ * Required because @mentra/bluetooth-sdk@0.1.6's iOS bridge never emits
+ * `photo_response` with state="success" (only the error variant is wired — see
+ * ios/Source/Bridge.swift line 261; there is no sendPhotoSuccess function).
+ * Mentra's own starter-kit example handles this the same way: it polls a
+ * server status endpoint for completion. `photo_response` is documented as
+ * "acknowledgment, not completion." PR #10 review finding #1.
+ *
+ * If bytes are already cached, resolves immediately. Supports multiple
+ * concurrent waiters on the same token (defence in depth — mobile flow is
+ * sequential, typically zero or one).
+ */
+export function waitForBytes(photoToken: string, timeoutMs: number): Promise<Buffer | null> {
+  const entry = cache.get(photoToken);
+  if (!entry) return Promise.resolve(null);
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(photoToken);
+    return Promise.resolve(null);
+  }
+  if (entry.bytes) return Promise.resolve(entry.bytes);
+
+  return new Promise<Buffer | null>((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      timer = null;
+      const arr = waiters.get(photoToken);
+      if (arr) {
+        const idx = arr.indexOf(wrap);
+        if (idx >= 0) arr.splice(idx, 1);
+        if (arr.length === 0) waiters.delete(photoToken);
+      }
+      resolve(null);
+    }, timeoutMs);
+
+    const wrap = (bytes: Buffer | null) => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolve(bytes);
+    };
+
+    const existing = waiters.get(photoToken) ?? [];
+    existing.push(wrap);
+    waiters.set(photoToken, existing);
+  });
 }
 
 /**

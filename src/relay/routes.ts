@@ -5,7 +5,7 @@ import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../
 import { transcribe } from "../services/elevenlabs-stt";
 import { normalizeTranscription } from "../utils/transcription-normalizer";
 import { stripAnnotations } from "../utils/transcription-filter";
-import { mintToken, storeBytes, getBytes } from "../services/photo-cache";
+import { mintToken, storeBytes, getBytes, waitForBytes } from "../services/photo-cache";
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
@@ -129,6 +129,32 @@ export function registerRelayRoutes(expressApp: any): void {
       uploadUrl: `${base}/api/photo/upload/${token.photoToken}`,
       expiresAt: token.expiresAt,
     });
+  }));
+
+  /* ── /api/photo/wait/:token ──────────────────────────────────────────── */
+  // Long-poll completion signal for the BLE photo capture. Mobile calls this
+  // after BluetoothSdk.requestPhoto(...) — server holds the response until
+  // storeBytes() fires for the token (glasses finished uploading) or until
+  // the configured timeout passes. Necessary because the iOS BLE SDK never
+  // emits photo_response with state="success" — see waitForBytes comment +
+  // ios/Source/Bridge.swift line 261. Mentra's own starter-kit example uses
+  // server polling for the same reason.
+
+  router.get("/photo/wait/:token", wrap("photo/wait", async (req, res) => {
+    const token = String(req.params?.token ?? "");
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+    // 20s — slightly longer than the typical photo capture (~3-8s on BLE).
+    // Mobile's HTTP timeout should be a bit higher so the server, not the
+    // client, controls the deadline.
+    const bytes = await waitForBytes(token, 20_000);
+    if (!bytes) {
+      res.status(408).json({ error: "photo upload timed out or token expired" });
+      return;
+    }
+    res.json({ ok: true, bytes: bytes.length });
   }));
 
   /* ── /api/intent ─────────────────────────────────────────────────────── */
@@ -330,16 +356,16 @@ export function registerRelayRoutes(expressApp: any): void {
       .send(audio);
   }));
 
-  // Mount the router. Existing /api/* routes (status, activity, faces GET/PUT/DELETE,
-  // settings, faces photo) remain registered on the parent app and are not affected.
-  expressApp.use("/api", router);
-
   /* ── /api/photo/upload/:token (UNAUTHENTICATED — glasses webhook) ────── */
-  // Goes on the parent app, NOT the HMAC-auth router. The token in the URL
+  // MUST be registered BEFORE expressApp.use("/api", router) below — Express
+  // matches in registration order, and the auth router would otherwise shadow
+  // this route and reject the glasses' upload with 401. The token in the URL
   // path is the auth (one-shot, 60s TTL, minted by /api/photo/upload-url).
-  // Multipart parsing via multer (memory storage, 10MB cap). The wire format
-  // is dictated by the BLE SDK's photo upload (multipart `photo` field +
-  // optional `requestId`) — matches Mentra's photo-webhook-server example.
+  // PR #10 review finding #2.
+  //
+  // Multipart parsing via multer (memory storage, 10MB cap). Wire format
+  // matches the Mentra photo-webhook-server example: `photo` binary field +
+  // optional `requestId` form field.
   const multer = require("multer");
   const photoUpload = multer({
     storage: multer.memoryStorage(),
@@ -368,5 +394,9 @@ export function registerRelayRoutes(expressApp: any): void {
     }
   });
 
-  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt, /api/photo/{upload-url,upload/:token}");
+  // Mount the auth-protected router LAST. Anything matching /api/* that wasn't
+  // already handled above falls through here and gets HMAC-checked.
+  expressApp.use("/api", router);
+
+  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt, /api/photo/{upload-url,upload/:token,wait/:token}");
 }
