@@ -139,9 +139,19 @@ export class SuhailApp extends AppServer {
    */
   private registerApiRoutes(): void {
     const expressApp = this.getExpressApp();
-    // Enable JSON body parsing for API routes (needed for PUT /api/faces/:faceId)
+    // Enable JSON body parsing for API routes (needed for PUT /api/faces/:faceId).
+    //
+    // Limit bumped from Express's default 100KB to 10MB to match the relay
+    // router's own override. The default was rejecting /api/stt requests
+    // ≥ ~2.4s of audio (base64 PCM of a 2.5s 16kHz/16-bit/mono clip is ~107KB,
+    // right past the default) with HTTP 413 BEFORE the relay router's
+    // 10mb-limited json() saw the body — Mac-Claude found this on PR #12+#13
+    // hardware testing.
+    //
+    // Existing routes that read JSON (settings PUT, faces rename) send tiny
+    // bodies, so the larger limit doesn't expand attack surface for them.
     const { json, static: serveStatic } = require("express");
-    expressApp.use("/api", json());
+    expressApp.use("/api", json({ limit: "10mb" }));
 
     // Serve generated audio cues at /cues/*.wav (consumed by session.audio.playAudio)
     expressApp.use("/cues", serveStatic("./public/cues", { maxAge: "1h" }));
