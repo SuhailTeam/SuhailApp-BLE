@@ -79,7 +79,7 @@ The full SDK docs live at https://bluetooth-sdk-docs.mentra.glass/. The starter 
 | `touch` / `swipe` | `session.events.onTouchEvent` | Forward swipe = activate listening / silence current TTS + re-listen; backward swipe = repeat last response. |
 | `battery`, `case battery`, `charging`, `wifi`, `hotspot` | `session.device.state.*.onChange` | Drive the Status screen; persist last-known values in MMKV. |
 | `head-up` | `session.events.onHeadPosition` | Not used today; available for future "wake on head up" feature. |
-| `photo` (after capture) | photo arrives in `requestPhoto` callback | Pipe to vision endpoint or face endpoint depending on the active command. |
+| `photo_response` (error only) | photo arrives in `requestPhoto` callback | **Only the ERROR variant is wired in `@mentra/bluetooth-sdk` 0.1.6.** The success variant is declared in the type system but never dispatched from iOS native (Bridge.swift:261 — no `sendPhotoSuccess`). Mentra's own starter-kit example uses server polling for completion; we do the same — see [Photo capture flow](#photo-capture-flow). Keep this listener for the error path (fast-fail when glasses can't capture). |
 | `audio chunk` (mic PCM) | `session.events.onTranscriptionForLanguage` (but cooked) | Stream into ElevenLabs Conversational AI for STT. We get raw PCM here, not transcribed text — STT is on us. |
 | `sdk log` | (none) | Pipe into our logger for debugging. |
 
@@ -90,7 +90,7 @@ The full SDK docs live at https://bluetooth-sdk-docs.mentra.glass/. The starter 
 | Speak text | `session.audio.speak(text)` | **No equivalent in BLE SDK.** We synthesize PCM/WAV on the phone (ElevenLabs WS) and ship audio bytes to the speaker. |
 | Play short audio cue (listening / got-it / cancelled) | `session.audio.playAudio({ audioUrl })` | Bundle WAVs in the app (`assets/cues/*.wav`), ship bytes to the speaker. |
 | Stop currently-playing audio | `session.audio.stopAudio(trackId)` | BLE SDK should expose a speaker stop; if not, send silence or end the active stream. |
-| Capture photo | `session.camera.requestPhoto({ size: "large", compress: "medium" })` | BLE `camera capture` API. Photo arrives via our own webhook or local callback. Keep `large` (1920×1080) + `medium` compression — measured optimum from the cloud version. |
+| Capture photo | `session.camera.requestPhoto({ size: "large", compress: "medium" })` | BLE `requestPhoto(requestId, appId, size, webhookUrl, authToken, compress, sound)`. Glasses POST multipart `{photo, requestId}` to the webhook URL. Completion is detected via **server long-poll** (`/api/photo/wait/:token`), NOT via `photo_response` — see [Photo capture flow](#photo-capture-flow). Keep `large` (1920×1080) + `medium` compression — measured optimum from the cloud version. |
 | LEDs | `session.led.*` | Same semantics; useful for "thinking…" feedback if we want it. |
 
 ### Things that do NOT exist in @mentra/bluetooth-sdk
@@ -100,6 +100,33 @@ The full SDK docs live at https://bluetooth-sdk-docs.mentra.glass/. The starter 
 - **`simpleStorage`** — use MMKV on device.
 - **`session.layouts` / `session.dashboard`** — Mentra Live has no display; irrelevant.
 - **Permission error events (`onPermissionError`)** — replaced by native OS permission flows on iOS/Android.
+
+## Photo capture flow
+
+Two-step, token-mediated. Mobile never base64-encodes the photo itself.
+
+```
+1. Mobile → POST /api/photo/upload-url   (HMAC-authed)
+     ← { photoToken, uploadUrl, expiresAt }   // server caches an empty entry under photoToken
+
+2. Mobile → BluetoothSdk.requestPhoto(reqId, appId, "large", uploadUrl, null, "medium", false)
+   Glasses → POST multipart {photo, requestId} to uploadUrl   // NO AUTH — URL-path token IS the auth
+     ← { success: true, bytes }                                // server.storeBytes() wakes any waiters
+
+3. Mobile → GET /api/photo/wait/<token>   (HMAC-authed, server long-poll, 20s)
+     ← { ok: true, bytes }                                     // resolves the instant storeBytes() fires
+   (in parallel: photo_response state="error" listener — fast-fail if glasses can't capture)
+
+4. Mobile → POST /api/vision/scene  { photoToken, language }    ── │ parallel
+            POST /api/faces/recognize-all  { photoToken }        ── │
+     ← results
+```
+
+**Why the long-poll instead of the BLE `photo_response` success event:** `@mentra/bluetooth-sdk` 0.1.6's iOS bridge has `sendPhotoError` but no `sendPhotoSuccess` (Bridge.swift:261 — verified). The success variant is in the Swift type model but never dispatched to JS. Mentra's own starter-kit example (`examples/react-native/src/useBluetoothSdkExample.ts`) uses server polling for completion for the same reason — `photo_response` is documented as "acknowledgment, not completion."
+
+**Server-side cache** (`src/services/photo-cache.ts`): in-memory `Map<token, PhotoEntry>` with 60s TTL, 20-entry cap, sweeper every 30s. `getBytes()` is non-evicting so describe-scene can read the same photo from both `/api/vision/scene` and `/api/faces/recognize-all` in parallel. `waitForBytes()` does the long-poll. Optional `evict()` for callers that want to free early.
+
+**Mobile-side wrapper** (`mobile/src/ble/camera.ts`): `capturePhoto({ signal, size, compress })` orchestrates the whole dance. Races three signals — wait endpoint success, BLE `photo_response` error variant, 25s outer timeout. Cleans up the listener + timer + abort handler in `finally`.
 
 ## Audio pipeline (the critical piece)
 
@@ -166,9 +193,28 @@ Transitions:
 
 Recreate the `pendingEnrollments` map for the 2-step face enrollment flow — see [`src/commands/face-enroll.ts`](../src/commands/face-enroll.ts) for the exact 30s timeout + TTS echo detection + concurrency lock.
 
-## Commands to port
+## Commands status
 
-All 8 live in [`src/commands/`](../src/commands/) and are the **specification** for the mobile equivalents. Port them in this order (each one wires to a Railway endpoint, see [Railway Relay Contract](#railway-relay-contract)):
+All 8 live in [`src/commands/`](../src/commands/) (cloud) and `mobile/src/commands/` (mobile). Cloud handlers are the **specification** for the mobile equivalents.
+
+| # | Command | Cloud handler | Mobile handler | Status |
+|---|---|---|---|---|
+| 1 | `scene-summarize` | [scene-summarize.ts](../src/commands/scene-summarize.ts) | [describe.ts](src/commands/describe.ts) | **Shipped** (slice 3b) |
+| 2 | `ocr-read-text` | [ocr-read-text.ts](../src/commands/ocr-read-text.ts) | [read.ts](src/commands/read.ts) | **Shipped** (slice 3c) |
+| 3 | `color-detect` | [color-detect.ts](../src/commands/color-detect.ts) | [color.ts](src/commands/color.ts) | **Shipped** (slice 3c) |
+| 4 | `find-object` | [find-object.ts](../src/commands/find-object.ts) | [find.ts](src/commands/find.ts) | **Shipped** (slice 3c) |
+| 5 | `face-recognize` | [face-recognize.ts](../src/commands/face-recognize.ts) | [who.ts](src/commands/who.ts) | **Shipped** (slice 3c) |
+| 6 | `currency-recognize` | [currency-recognize.ts](../src/commands/currency-recognize.ts) | [money.ts](src/commands/money.ts) | **Shipped** (slice 3c) |
+| 7 | `visual-qa` | [visual-qa.ts](../src/commands/visual-qa.ts) | [vqa.ts](src/commands/vqa.ts) | **Shipped** (slice 3c) |
+| 8 | `face-enroll` | [face-enroll.ts](../src/commands/face-enroll.ts) | *(not ported)* | **Pending** (slice 3d — stateful 2-step) |
+
+Each ported command:
+- captures a photo via [`mobile/src/ble/camera.ts`](src/ble/camera.ts) → server long-poll completion
+- calls one or two [`mobile/src/relay/{vision,faces}.ts`](src/relay/) endpoints with `{ photoToken }`
+- returns the spoken text (the listening state machine speaks it + updates `lastResponse`)
+- throws on failure → dispatcher catches → speaks `generalError`
+
+For the **legacy "port in this order" guidance** (kept for reference):
 
 | # | Command | Cloud handler | Railway endpoint | Notes |
 |---|---|---|---|---|
