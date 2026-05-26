@@ -7,6 +7,12 @@ import { transcribe as sttTranscribe } from "../relay/stt";
 import { classifyIntent, type CommandType } from "../relay/intent";
 import { normalize } from "../relay/normalize";
 import { executeDescribe } from "../commands/describe";
+import { executeRead } from "../commands/read";
+import { executeColor } from "../commands/color";
+import { executeFind } from "../commands/find";
+import { executeWho } from "../commands/who";
+import { executeVqa } from "../commands/vqa";
+import { executeMoney } from "../commands/money";
 import { RelayError } from "../relay/client";
 import { messages, type Language } from "../i18n/messages";
 import { useActivity } from "./activity";
@@ -232,27 +238,43 @@ export async function processTranscription(text: string, confidence: number): Pr
  * the text to speak; unported commands fall through to the slice-3a preview
  * stub ("I'd <verb> ... — coming soon").
  *
- * Slice 3b: scene-summarize ships real (executeDescribe).
- * Slice 4+:  the other 7 commands.
+ * Slice 3b: scene-summarize.
+ * Slice 3c: ocr-read-text, color-detect, find-object, face-recognize,
+ *           visual-qa, currency-recognize.
+ * Slice 3d: face-enroll (stateful 2-step — different shape, ships separately).
  */
 async function dispatchCommand(
   command: CommandType,
   params: Record<string, string> | undefined,
   language: Language,
 ): Promise<string> {
+  const signal = sttAbort?.signal;
   switch (command) {
     case "scene-summarize":
-      return executeDescribe({ language, signal: sttAbort?.signal });
+      return executeDescribe({ language, signal });
 
-    // Not ported yet — speak the bilingual preview so the user gets an
-    // explicit "I'd do that — coming soon" instead of silence.
     case "ocr-read-text":
-    case "face-recognize":
-    case "face-enroll":
-    case "find-object":
-    case "currency-recognize":
+      return executeRead({ language, context: params?.context, signal });
+
     case "color-detect":
+      return executeColor({ language, signal });
+
+    case "find-object":
+      return executeFind({ language, objectName: params?.objectName, signal });
+
+    case "face-recognize":
+      return executeWho({ language, signal });
+
+    case "currency-recognize":
+      return executeMoney({ language, signal });
+
     case "visual-qa":
+      return executeVqa({ language, question: params?.question, signal });
+
+    // Stateful 2-step (capture → ask for name → save) — slice 3d will replace
+    // this with a real handler. Until then, speak the preview so users get
+    // explicit "coming soon" feedback instead of silence.
+    case "face-enroll":
       return describeRoutedCommand(command, params, language);
 
     case "unknown":
