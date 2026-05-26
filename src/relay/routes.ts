@@ -5,6 +5,7 @@ import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../
 import { transcribe } from "../services/elevenlabs-stt";
 import { normalizeTranscription } from "../utils/transcription-normalizer";
 import { stripAnnotations } from "../utils/transcription-filter";
+import { mintToken, storeBytes, getBytes } from "../services/photo-cache";
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
@@ -23,6 +24,46 @@ function asLanguage(value: unknown): Language {
 /** Type guard for a non-empty base64 image string. */
 function isImage(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Resolves either `image` (base64) or `photoToken` (cache key) to a base64
+ * string for vision/face endpoints. Mobile callers can pass EITHER:
+ *   { image: base64 }         — legacy / direct path (still used by tests)
+ *   { photoToken: "<hex>" }   — BLE flow: glasses uploaded to /api/photo/upload/<token>
+ *
+ * Returns the base64 image on success, or sets a 4xx response + returns null
+ * on missing/invalid input. Caller checks the return value before proceeding.
+ *
+ * Photo token consumption is one-shot — calling twice with the same token
+ * fails the second time (entry evicted on first consume).
+ */
+/**
+ * Reconstructs the public base URL for this server from the incoming request.
+ * Honours x-forwarded-proto / x-forwarded-host (set by ngrok and Railway) so
+ * the URL we give to glasses for photo upload is reachable from the public
+ * internet, not localhost. Falls back to req.protocol + req.get('host').
+ */
+function absoluteBase(req: any): string {
+  const proto = req.get("x-forwarded-proto") ?? req.protocol ?? "https";
+  const host = req.get("x-forwarded-host") ?? req.get("host");
+  return `${proto}://${host}`;
+}
+
+function resolveImageOrRespondError(body: any, res: any): string | null {
+  if (typeof body?.image === "string" && body.image.length > 0) {
+    return body.image;
+  }
+  if (typeof body?.photoToken === "string" && body.photoToken.length > 0) {
+    const bytes = getBytes(body.photoToken);
+    if (!bytes) {
+      res.status(404).json({ error: "photoToken unknown, expired, or never uploaded" });
+      return null;
+    }
+    return bytes.toString("base64");
+  }
+  res.status(400).json({ error: "image (base64) or photoToken is required" });
+  return null;
 }
 
 /**
@@ -67,6 +108,28 @@ export function registerRelayRoutes(expressApp: any): void {
   const router = express.Router();
   router.use(express.json({ limit: RELAY_BODY_LIMIT }));
   router.use(relayAuth);
+
+  /* ── /api/photo/upload-url ───────────────────────────────────────────── */
+  // Mobile calls this to mint a one-shot upload URL it then passes to
+  // BluetoothSdk.requestPhoto(...). Glasses POST the photo to that URL.
+
+  router.post("/photo/upload-url", wrap("photo/upload-url", async (req, res) => {
+    const deviceId = (req as any).deviceId ?? "anon";
+    let token;
+    try {
+      token = mintToken(deviceId);
+    } catch (err) {
+      // Cache at capacity — too many in-flight photos. Mobile should retry shortly.
+      res.status(503).json({ error: "photo cache at capacity, try again" });
+      return;
+    }
+    const base = absoluteBase(req);
+    res.json({
+      photoToken: token.photoToken,
+      uploadUrl: `${base}/api/photo/upload/${token.photoToken}`,
+      expiresAt: token.expiresAt,
+    });
+  }));
 
   /* ── /api/intent ─────────────────────────────────────────────────────── */
 
@@ -119,115 +182,88 @@ export function registerRelayRoutes(expressApp: any): void {
   /* ── /api/vision/* ───────────────────────────────────────────────────── */
 
   router.post("/vision/scene", wrap("vision/scene", async (req, res) => {
-    const { image, language } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
-    const result = await visionService.describeScene(image, asLanguage(language));
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
+    const result = await visionService.describeScene(image, asLanguage(req.body?.language));
     res.json(result);
   }));
 
   router.post("/vision/ocr", wrap("vision/ocr", async (req, res) => {
-    const { image, language, context } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
     const text = await visionService.extractText(
       image,
-      typeof context === "string" ? context : undefined,
-      asLanguage(language),
+      typeof req.body?.context === "string" ? req.body.context : undefined,
+      asLanguage(req.body?.language),
     );
     res.json({ text });
   }));
 
   router.post("/vision/currency", wrap("vision/currency", async (req, res) => {
-    const { image } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
     const result = await visionService.recognizeCurrency(image);
     res.json(result);
   }));
 
   router.post("/vision/object", wrap("vision/object", async (req, res) => {
-    const { image, target, language } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
-    if (typeof target !== "string" || target.trim().length === 0) {
+    if (typeof req.body?.target !== "string" || req.body.target.trim().length === 0) {
       res.status(400).json({ error: "target is required" });
       return;
     }
-    const result = await visionService.detectObject(image, target.trim(), asLanguage(language));
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
+    const result = await visionService.detectObject(image, req.body.target.trim(), asLanguage(req.body?.language));
     res.json(result);
   }));
 
   router.post("/vision/color", wrap("vision/color", async (req, res) => {
-    const { image, language } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
-    const result = await visionService.detectColor(image, asLanguage(language));
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
+    const result = await visionService.detectColor(image, asLanguage(req.body?.language));
     res.json(result);
   }));
 
   router.post("/vision/vqa", wrap("vision/vqa", async (req, res) => {
-    const { image, question, language } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
-    if (typeof question !== "string" || question.trim().length === 0) {
+    if (typeof req.body?.question !== "string" || req.body.question.trim().length === 0) {
       res.status(400).json({ error: "question is required" });
       return;
     }
-    const result = await visionService.answerVisualQuestion(image, question.trim(), asLanguage(language));
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
+    const result = await visionService.answerVisualQuestion(image, req.body.question.trim(), asLanguage(req.body?.language));
     res.json(result);
   }));
 
   /* ── /api/faces/* (POST only — GET/PUT/DELETE stay on the existing webview path) ── */
 
   router.post("/faces/recognize", wrap("faces/recognize", async (req, res) => {
-    const { image } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
     const result = await faceService.recognizeFace(image);
     res.json(result);
   }));
 
   router.post("/faces/recognize-all", wrap("faces/recognize-all", async (req, res) => {
-    const { image } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
     const result = await faceService.recognizeAllFaces(image);
     res.json(result);
   }));
 
   router.post("/faces/enroll", wrap("faces/enroll", async (req, res) => {
-    const { image, name } = req.body ?? {};
-    if (!isImage(image)) {
-      res.status(400).json({ error: "image (base64) is required" });
-      return;
-    }
-    if (typeof name !== "string" || name.trim().length === 0) {
+    if (typeof req.body?.name !== "string" || req.body.name.trim().length === 0) {
       res.status(400).json({ error: "name is required" });
       return;
     }
-    const faceId = await faceService.enrollFace(name.trim(), image);
+    const image = resolveImageOrRespondError(req.body, res);
+    if (!image) return;
+    const faceId = await faceService.enrollFace(req.body.name.trim(), image);
     if (!faceId) {
       res.status(422).json({ error: "Face could not be enrolled" });
       return;
     }
-    res.json({ faceId, name: name.trim(), enrolledAt: new Date().toISOString() });
+    res.json({ faceId, name: req.body.name.trim(), enrolledAt: new Date().toISOString() });
   }));
 
   /* ── /api/stt ────────────────────────────────────────────────────────── */
@@ -297,5 +333,40 @@ export function registerRelayRoutes(expressApp: any): void {
   // Mount the router. Existing /api/* routes (status, activity, faces GET/PUT/DELETE,
   // settings, faces photo) remain registered on the parent app and are not affected.
   expressApp.use("/api", router);
-  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt");
+
+  /* ── /api/photo/upload/:token (UNAUTHENTICATED — glasses webhook) ────── */
+  // Goes on the parent app, NOT the HMAC-auth router. The token in the URL
+  // path is the auth (one-shot, 60s TTL, minted by /api/photo/upload-url).
+  // Multipart parsing via multer (memory storage, 10MB cap). The wire format
+  // is dictated by the BLE SDK's photo upload (multipart `photo` field +
+  // optional `requestId`) — matches Mentra's photo-webhook-server example.
+  const multer = require("multer");
+  const photoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+  }).single("photo");
+
+  expressApp.post("/api/photo/upload/:token", photoUpload, (req: any, res: any) => {
+    try {
+      const token = String(req.params?.token ?? "");
+      const photo = req.file;
+      if (!photo) {
+        res.status(400).json({ error: "photo field missing" });
+        return;
+      }
+      if (!storeBytes(token, photo.buffer)) {
+        res.status(404).json({ error: "photoToken unknown or expired" });
+        return;
+      }
+      logger.info(`photo upload: ${photo.buffer.length} bytes for ${token.slice(0, 8)}... (requestId=${req.body?.requestId ?? "?"})`);
+      res.json({ success: true, bytes: photo.buffer.length });
+    } catch (err: any) {
+      logger.error("photo upload failed:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: err?.message || "Internal error" });
+      }
+    }
+  });
+
+  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt, /api/photo/{upload-url,upload/:token}");
 }
