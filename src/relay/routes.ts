@@ -4,6 +4,7 @@ import * as faceService from "../services/face-service";
 import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../services/elevenlabs-tts";
 import { transcribe } from "../services/elevenlabs-stt";
 import { normalizeTranscription } from "../utils/transcription-normalizer";
+import { stripAnnotations } from "../utils/transcription-filter";
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
@@ -75,9 +76,16 @@ export function registerRelayRoutes(expressApp: any): void {
       res.status(400).json({ error: "text is required" });
       return;
     }
+    // Strip Scribe-style annotations like "(clicks tongue)" before routing —
+    // they confuse the classifier and can be the entire utterance.
+    const cleaned = stripAnnotations(text);
+    if (cleaned.length === 0) {
+      res.json({ command: "unknown", rawText: text });
+      return;
+    }
     // language is accepted for future use (e.g. localized fallbacks) but routeCommand
     // doesn't currently consume it — the LLM is language-agnostic.
-    const result = await routeCommand(text);
+    const result = await routeCommand(cleaned);
     if (!result) {
       res.json({ command: "unknown", rawText: text });
       return;
@@ -94,11 +102,17 @@ export function registerRelayRoutes(expressApp: any): void {
       return;
     }
     const lang: Language = language === "en" ? "en" : "ar";
+    // Strip Scribe-style "(coughs)" before normalization for the same reason.
+    const cleaned = stripAnnotations(text);
+    if (cleaned.length === 0) {
+      res.json({ text: "" });
+      return;
+    }
     // normalizeTranscription is a no-op when the text doesn't need normalization
     // (returns input unchanged). So mobile callers can call this unconditionally,
     // though they SHOULD pre-check with `needsScriptNormalization` to skip the
     // round-trip and OpenRouter spend when nothing's needed.
-    const normalized = await normalizeTranscription(text, lang);
+    const normalized = await normalizeTranscription(cleaned, lang);
     res.json({ text: normalized });
   }));
 

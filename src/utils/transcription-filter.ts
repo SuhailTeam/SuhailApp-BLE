@@ -42,3 +42,20 @@ export function needsScriptNormalization(text: string, lang: Language): boolean 
   if (trimmed.length <= 3) return false;
   return ARABIC_SCRIPT.test(trimmed) && !/[a-zA-Z]/.test(trimmed);
 }
+
+/**
+ * Strips parenthetical annotations from STT output. ElevenLabs Scribe inserts
+ * non-verbal sound events like "(clicks tongue)", "(coughs)", "(laughs)"
+ * inline with transcribed speech. They confuse the intent classifier and can
+ * be the entire short utterance ("(coughs)") if the user only made a sound.
+ *
+ * Surfaced in PR #7 hardware test:
+ *   "Describe my surroundings (clicks tongue)."
+ *
+ * Removes "(<anything but parens>)" along with the surrounding whitespace.
+ * Caller should re-check `isValidTranscription` after stripping to catch
+ * the all-annotation case ("(coughs)" → "" → reject).
+ */
+export function stripAnnotations(text: string): string {
+  return text.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+}
