@@ -6,6 +6,7 @@ import { cancelCapture, startCapture } from "../ble/mic";
 import { transcribe as sttTranscribe } from "../relay/stt";
 import { classifyIntent, type CommandType } from "../relay/intent";
 import { normalize } from "../relay/normalize";
+import { executeDescribe } from "../commands/describe";
 import { RelayError } from "../relay/client";
 import { messages, type Language } from "../i18n/messages";
 import { useActivity } from "./activity";
@@ -205,14 +206,61 @@ export async function processTranscription(text: string, confidence: number): Pr
   logger.info(`routed: "${snippet(normalised)}" → ${route.command}${paramSummary}`);
   logActivity(`routed → ${route.command}${paramSummary}`);
 
-  // Step 4: speak the routed-command preview. Slice 3b replaces these with
-  // actual command execution (photo capture → vision → speak the result).
+  // Step 4: dispatch to a real command handler (slice 3b — describe-scene
+  // only) OR fall through to the bilingual "would do" preview stub for
+  // commands that haven't been ported yet.
   if (route.command === "unknown") {
     await finishProcessing(messages.unknownCommand[language]);
     return;
   }
-  const reply = describeRoutedCommand(route.command, route.params, language);
-  await finishProcessing(reply);
+
+  try {
+    const reply = await dispatchCommand(route.command, route.params, language);
+    await finishProcessing(reply);
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.message === "aborted" || err.message === "interrupted")) {
+      return;
+    }
+    logger.error(`command ${route.command} failed:`, err);
+    logActivity(`${route.command} failed`);
+    await finishProcessing(messages.generalError[language]);
+  }
+}
+
+/**
+ * Dispatches a routed command to its handler. Real implementations return
+ * the text to speak; unported commands fall through to the slice-3a preview
+ * stub ("I'd <verb> ... — coming soon").
+ *
+ * Slice 3b: scene-summarize ships real (executeDescribe).
+ * Slice 4+:  the other 7 commands.
+ */
+async function dispatchCommand(
+  command: CommandType,
+  params: Record<string, string> | undefined,
+  language: Language,
+): Promise<string> {
+  switch (command) {
+    case "scene-summarize":
+      return executeDescribe({ language, signal: sttAbort?.signal });
+
+    // Not ported yet — speak the bilingual preview so the user gets an
+    // explicit "I'd do that — coming soon" instead of silence.
+    case "ocr-read-text":
+    case "face-recognize":
+    case "face-enroll":
+    case "find-object":
+    case "currency-recognize":
+    case "color-detect":
+    case "visual-qa":
+      return describeRoutedCommand(command, params, language);
+
+    case "unknown":
+    default:
+      // Caller filters "unknown" before reaching here; this is defense in
+      // depth so a future type addition gets flagged loudly.
+      throw new Error(`dispatchCommand called with unsupported command: ${command}`);
+  }
 }
 
 /**

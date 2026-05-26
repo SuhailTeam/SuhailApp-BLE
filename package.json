@@ -12,6 +12,8 @@
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.887.0",
     "@mentra/sdk": "2.1.29",
+    "@types/multer": "^2.1.0",
+    "multer": "^2.1.1",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
