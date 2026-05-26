@@ -4,12 +4,14 @@ import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
 import { cancelCapture, startCapture } from "../ble/mic";
 import { transcribe as sttTranscribe } from "../relay/stt";
+import { classifyIntent, type CommandType } from "../relay/intent";
+import { normalize } from "../relay/normalize";
 import { RelayError } from "../relay/client";
-import { messages } from "../i18n/messages";
+import { messages, type Language } from "../i18n/messages";
 import { useActivity } from "./activity";
 import { getLastResponse, setLastResponse, clearLastResponse } from "./lastResponse";
 import { getSettings } from "./settings";
-import { isValidTranscription } from "../utils/transcription-filter";
+import { isValidTranscription, needsScriptNormalization } from "../utils/transcription-filter";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("Listening");
@@ -137,9 +139,15 @@ export function isSpeaking(): boolean {
 }
 
 /**
- * External entry point for transcribed text. Currently only called by tests
- * and by the internal STT pipeline below — Phase C slice 3+ will also use
- * it for the in-flight intent routing.
+ * External entry point for transcribed text. The internal STT pipeline calls
+ * this with `sttAbort.signal`-routed cancellation, but external callers (tests,
+ * debug buttons) can call it directly without a signal.
+ *
+ * Flow:
+ *   1. Filter / grace / confidence checks
+ *   2. Optional script normalization (Arabic-script English → Latin) via /api/normalize
+ *   3. Intent classification via /api/intent
+ *   4. Speak the routed-command preview (slice 3a)  — slice 3b dispatches.
  */
 export async function processTranscription(text: string, confidence: number): Promise<void> {
   const language = getSettings().language;
@@ -159,14 +167,90 @@ export async function processTranscription(text: string, confidence: number): Pr
     return;
   }
 
-  // TODO Phase C slice 3: normalize via /api/normalize, then route via
-  // /api/intent + dispatch to a command handler. For now we just echo.
-  logger.info(`would route: "${snippet(text)}" (language=${language}) — stub`);
-  logActivity(`heard: "${snippet(text)}" (routing not yet wired)`);
-  const reply = language === "ar"
-    ? `سمعتك تقول: ${text}`
-    : `I heard you say: ${text}`;
+  // Step 2: normalize (no-op when not needed; saves an HTTP hop by checking client-side first).
+  let normalised = text;
+  if (needsScriptNormalization(text, language)) {
+    try {
+      const result = await normalize(text, language, sttAbort?.signal);
+      if (result && result !== text) {
+        normalised = result;
+        logger.info(`normalised: "${snippet(text)}" → "${snippet(normalised)}"`);
+        logActivity(`normalised → "${snippet(normalised)}"`);
+      }
+    } catch (err) {
+      // Non-fatal — server-side normalize is also no-op-safe; falling back to
+      // the original text just means the intent classifier sees Arabic-script
+      // text it may or may not handle well.
+      logger.warn(`normalize failed, using original: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Step 3: classify intent.
+  let route;
+  try {
+    route = await classifyIntent(normalised, language, sttAbort?.signal);
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || err.message === "interrupted")) {
+      return;
+    }
+    logger.error("intent classification failed:", err);
+    logActivity("intent classification failed");
+    await finishProcessing(messages.generalError[language]);
+    return;
+  }
+
+  const paramSummary = route.params && Object.keys(route.params).length
+    ? ` ${JSON.stringify(route.params)}`
+    : "";
+  logger.info(`routed: "${snippet(normalised)}" → ${route.command}${paramSummary}`);
+  logActivity(`routed → ${route.command}${paramSummary}`);
+
+  // Step 4: speak the routed-command preview. Slice 3b replaces these with
+  // actual command execution (photo capture → vision → speak the result).
+  if (route.command === "unknown") {
+    await finishProcessing(messages.unknownCommand[language]);
+    return;
+  }
+  const reply = describeRoutedCommand(route.command, route.params, language);
   await finishProcessing(reply);
+}
+
+/**
+ * Bilingual preview of "what we would do" for a routed command. Pure
+ * presentation — replaced in slice 3b when real execution lands.
+ */
+function describeRoutedCommand(
+  command: CommandType,
+  params: Record<string, string> | undefined,
+  language: Language,
+): string {
+  const objectName = params?.objectName;
+  const question = params?.question;
+
+  if (language === "ar") {
+    switch (command) {
+      case "scene-summarize":     return "سأصف ما حولك (قريبًا).";
+      case "ocr-read-text":       return "سأقرأ النص (قريبًا).";
+      case "face-recognize":      return "سأتعرف على الوجه (قريبًا).";
+      case "face-enroll":         return "سأسجل الوجه (قريبًا).";
+      case "find-object":         return `سأبحث عن ${objectName || "الشيء"} (قريبًا).`;
+      case "currency-recognize":  return "سأعدّ النقود (قريبًا).";
+      case "color-detect":        return "سأحدد اللون (قريبًا).";
+      case "visual-qa":           return `سأجيب عن: ${question || "سؤالك"} (قريبًا).`;
+      default:                    return "تم تصنيف الأمر.";
+    }
+  }
+  switch (command) {
+    case "scene-summarize":     return "I'd describe your surroundings — coming soon.";
+    case "ocr-read-text":       return "I'd read the text — coming soon.";
+    case "face-recognize":      return "I'd recognize the face — coming soon.";
+    case "face-enroll":         return "I'd enroll the face — coming soon.";
+    case "find-object":         return `I'd find your ${objectName || "object"} — coming soon.`;
+    case "currency-recognize":  return "I'd count the money — coming soon.";
+    case "color-detect":        return "I'd detect the color — coming soon.";
+    case "visual-qa":           return `I'd answer: ${question || "your question"} — coming soon.`;
+    default:                    return "Command routed.";
+  }
 }
 
 /* ── Internals ───────────────────────────────────────────────────────────── */
@@ -238,12 +322,13 @@ async function runListenSession(withCue: boolean): Promise<void> {
   // Got-it cue runs in parallel with the STT round-trip — feels responsive.
   void playCue("got-it").catch(() => {});
 
-  // STT round-trip, abortable so an interrupt can cancel mid-flight.
+  // STT + normalize + intent all live under the same AbortController so an
+  // interrupt at any point in the processing phase aborts the in-flight HTTP
+  // call. Not nulled until the whole session finishes (or the catch fires).
   sttAbort = new AbortController();
   try {
     const result = await sttTranscribe(capture.audioBase64, getSettings().language, sttAbort.signal);
     if (myToken !== activationToken) return;
-    sttAbort = null;
 
     const confidence = result.confidence ?? 1.0;
     const text = result.text?.trim() ?? "";
@@ -259,7 +344,6 @@ async function runListenSession(withCue: boolean): Promise<void> {
     await processTranscription(text, confidence);
   } catch (err) {
     if (myToken !== activationToken) return; // we got interrupted
-    sttAbort = null;
     if (err instanceof Error && err.message === "interrupted") return;
     logger.error("STT failed:", err);
     const lang = getSettings().language;
@@ -267,6 +351,8 @@ async function runListenSession(withCue: boolean): Promise<void> {
     logActivity(`STT failed${detail}`);
     useListening.setState({ state: "idle" });
     await finishProcessing(messages.generalError[lang]);
+  } finally {
+    if (myToken === activationToken) sttAbort = null;
   }
 }
 

@@ -3,6 +3,7 @@ import * as visionService from "../services/vision-service";
 import * as faceService from "../services/face-service";
 import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../services/elevenlabs-tts";
 import { transcribe } from "../services/elevenlabs-stt";
+import { normalizeTranscription } from "../utils/transcription-normalizer";
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
@@ -82,6 +83,23 @@ export function registerRelayRoutes(expressApp: any): void {
       return;
     }
     res.json(result);
+  }));
+
+  /* ── /api/normalize ──────────────────────────────────────────────────── */
+
+  router.post("/normalize", wrap("normalize", async (req, res) => {
+    const { text, language } = req.body ?? {};
+    if (typeof text !== "string" || text.trim().length === 0) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    const lang: Language = language === "en" ? "en" : "ar";
+    // normalizeTranscription is a no-op when the text doesn't need normalization
+    // (returns input unchanged). So mobile callers can call this unconditionally,
+    // though they SHOULD pre-check with `needsScriptNormalization` to skip the
+    // round-trip and OpenRouter spend when nothing's needed.
+    const normalized = await normalizeTranscription(text, lang);
+    res.json({ text: normalized });
   }));
 
   /* ── /api/vision/* ───────────────────────────────────────────────────── */
@@ -265,5 +283,5 @@ export function registerRelayRoutes(expressApp: any): void {
   // Mount the router. Existing /api/* routes (status, activity, faces GET/PUT/DELETE,
   // settings, faces photo) remain registered on the parent app and are not affected.
   expressApp.use("/api", router);
-  logger.info("Relay routes registered: /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt");
+  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt");
 }
