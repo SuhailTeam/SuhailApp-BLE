@@ -1,4 +1,5 @@
 import { getJson, postJson } from "./client";
+import type { ImageSource } from "./vision";
 
 export interface FaceMatch {
   name: string | null;
@@ -24,16 +25,16 @@ export interface EnrolledFace {
   enrolledAt: string | null;
 }
 
-export function recognizeFace(image: string, signal?: AbortSignal) {
-  return postJson<FaceMatch>("/api/faces/recognize", { image }, { signal });
+export function recognizeFace(source: ImageSource, signal?: AbortSignal) {
+  return postJson<FaceMatch>("/api/faces/recognize", { ...source }, { signal });
 }
 
-export function recognizeAllFaces(image: string, signal?: AbortSignal) {
-  return postJson<MultiFaceResult>("/api/faces/recognize-all", { image }, { signal });
+export function recognizeAllFaces(source: ImageSource, signal?: AbortSignal) {
+  return postJson<MultiFaceResult>("/api/faces/recognize-all", { ...source }, { signal });
 }
 
-export function enrollFace(image: string, name: string, signal?: AbortSignal) {
-  return postJson<EnrollResult>("/api/faces/enroll", { image, name }, { signal });
+export function enrollFace(source: ImageSource, name: string, signal?: AbortSignal) {
+  return postJson<EnrollResult>("/api/faces/enroll", { ...source, name }, { signal });
 }
 
 /** Lists all enrolled faces (uses the existing open /api/faces GET endpoint). */
