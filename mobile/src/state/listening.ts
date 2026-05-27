@@ -21,7 +21,7 @@ import { messages, type Language } from "../i18n/messages";
 import { useActivity } from "./activity";
 import { getLastResponse, setLastResponse, clearLastResponse } from "./lastResponse";
 import { getSettings } from "./settings";
-import { isValidTranscription, needsScriptNormalization } from "../utils/transcription-filter";
+import { isValidTranscription, needsScriptNormalization, stripAnnotations } from "../utils/transcription-filter";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("Listening");
@@ -258,10 +258,32 @@ export async function processTranscription(text: string, confidence: number): Pr
   // is the NAME, not a new command — skip the classifier entirely. Mirrors
   // src/app.ts:380 (cloud version's `hasPendingEnrollment` check).
   if (hasPendingEnrollment()) {
-    logger.info(`enrollment step 2: name="${snippet(text)}"`);
-    logActivity(`enrollment name: "${snippet(text)}"`);
+    // Clean Scribe annotations from the spoken name BEFORE enrolling. PR #15
+    // hardware test caught this: Scribe heard a knock on a table, transcribed
+    // it as "(knocks on table)", and the enrollment stored that literal
+    // string in AWS Rekognition. The server's stripAnnotations runs in
+    // /api/intent + /api/normalize — both bypassed on the enrollment-name
+    // path — so we do the same cleanup here, plus a minimum-length check.
+    const cleanedName = stripAnnotations(text);
+    if (cleanedName.length < 2) {
+      logger.info(`enrollment name rejected: "${snippet(text)}" → "${cleanedName}" (too short after strip)`);
+      logActivity(`enrollment name rejected: "${snippet(text)}"`);
+      // Keep pending state so the user can retry on the next swipe.
+      // Restart the timeout — they get another 30s window.
+      startEnrollmentTimeout(language);
+      useListening.setState({ state: "idle" });
+      await speakWithEchoGuard(
+        language === "ar"
+          ? "لم أسمع اسماً واضحاً. حاول مرة أخرى."
+          : "I didn't catch a name. Please try again.",
+      );
+      return;
+    }
+
+    logger.info(`enrollment step 2: name="${snippet(cleanedName)}"`);
+    logActivity(`enrollment name: "${snippet(cleanedName)}"`);
     clearEnrollmentTimeout();
-    const reply = await completeEnrollment({ name: text, language, signal: sttAbort?.signal });
+    const reply = await completeEnrollment({ name: cleanedName, language, signal: sttAbort?.signal });
     if (reply === null) {
       // Echo / concurrent / interrupted — don't speak. If pending state
       // survived (echo path), restart the timeout so the user has another

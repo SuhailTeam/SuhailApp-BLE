@@ -45,3 +45,28 @@ export function needsScriptNormalization(text: string, lang: Language): boolean 
   if (trimmed.length <= 3) return false;
   return ARABIC_SCRIPT.test(trimmed) && !/[a-zA-Z]/.test(trimmed);
 }
+
+/**
+ * Strips parenthetical annotations from STT output. ElevenLabs Scribe inserts
+ * non-verbal sound events like "(clicks tongue)", "(coughs)", "(knocks on
+ * table)" inline with transcribed speech.
+ *
+ * Mirrors `stripAnnotations` in src/utils/transcription-filter.ts (server)
+ * byte-for-byte. The server runs this in /api/intent + /api/normalize before
+ * the classifier. Mobile needs it too for paths that DON'T go through the
+ * intent classifier — specifically the face-enrollment name capture
+ * (mobile/src/state/listening.ts intercepts the second-swipe transcription
+ * before /api/intent ever runs, so the server-side strip never fires there).
+ *
+ * Three-pass cleanup so we don't leave orphan whitespace or punctuation:
+ *   1. replace "(...)" + surrounding whitespace with a single space
+ *   2. drop any space before sentence-final punctuation
+ *   3. collapse runs of whitespace + trim ends
+ */
+export function stripAnnotations(text: string): string {
+  return text
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
