@@ -206,7 +206,7 @@ All 8 live in [`src/commands/`](../src/commands/) (cloud) and `mobile/src/comman
 | 5 | `face-recognize` | [face-recognize.ts](../src/commands/face-recognize.ts) | [who.ts](src/commands/who.ts) | **Shipped** (slice 3c) |
 | 6 | `currency-recognize` | [currency-recognize.ts](../src/commands/currency-recognize.ts) | [money.ts](src/commands/money.ts) | **Shipped** (slice 3c) |
 | 7 | `visual-qa` | [visual-qa.ts](../src/commands/visual-qa.ts) | [vqa.ts](src/commands/vqa.ts) | **Shipped** (slice 3c) |
-| 8 | `face-enroll` | [face-enroll.ts](../src/commands/face-enroll.ts) | *(not ported)* | **Pending** (slice 3d — stateful 2-step) |
+| 8 | `face-enroll` | [face-enroll.ts](../src/commands/face-enroll.ts) | [enroll.ts](src/commands/enroll.ts) | **Shipped** (slice 3d — stateful 2-step + 30s timeout) |
 
 Each ported command:
 - captures a photo via [`mobile/src/ble/camera.ts`](src/ble/camera.ts) → server long-poll completion
