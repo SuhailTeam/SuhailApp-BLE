@@ -171,7 +171,15 @@ Default plan: **measure both with the ported `timeline.ts` before locking in.** 
 
 ### Audio cues
 
-Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues.
+Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues. Generator: `scripts/generate-cues.ts` (pure synthetic tones — no network).
+
+### Pre-bundled phrase audio
+
+The hot, **static** spoken phrases (`didntCatch`, `generalError`, `unknownCommand`, `repeatNoHistory`, `glassesDisconnected`, `enrollPrompt`, `enrollFailed`) ship as committed mp3 assets (`mobile/assets/phrases/<key>.<lang>.mp3`) so they play instantly with no `/api/tts` round-trip and zero ElevenLabs spend. Dynamic strings (scene/OCR results, the enrollment success line that embeds a name) still use live TTS.
+
+- **Source of truth:** `BUNDLED_PHRASE_KEYS` + the message text in [`src/i18n/messages.ts`](src/i18n/messages.ts). Shared by the generator and the runtime.
+- **Generator:** `scripts/generate-phrases.ts` — mirrors [`src/services/elevenlabs-tts.ts`](../src/services/elevenlabs-tts.ts) (default voice Rachel, `eleven_flash_v2_5`, `mp3_44100_64`, `/stream`) so a bundled phrase is indistinguishable from a live one. Reads `ELEVENLABS_API_KEY` from the **repo-root `.env`** (the secret never ships in the app). Run `bun run scripts/generate-phrases.ts` and commit the mp3s after editing any bundled phrase.
+- **Runtime:** [`src/audio/phrases.ts`](src/audio/phrases.ts) maps an exact localized string → bundled asset id; `speak()` ([`src/audio/tts.ts`](src/audio/tts.ts)) takes the fast path **only when `voicePreset === "default"` and `speechSpeed === 1.0`** — a user on a custom voice/speed still hears their choice via live TTS. Volume is applied at playback, so it's honored either way.
 
 ## Listening state machine
 
@@ -413,6 +421,8 @@ eas build --profile development --platform ios       # iOS dev build (requires M
 eas build --profile development --platform android   # Android dev build
 eas build --profile production --platform all        # Production builds for both
 bun run typecheck                     # tsc --noEmit
+bun run scripts/generate-cues.ts      # Regenerate cue chimes (synthetic, no network)
+bun run scripts/generate-phrases.ts   # Regenerate pre-bundled phrase audio (needs repo-root ELEVENLABS_API_KEY)
 ```
 
 ## References

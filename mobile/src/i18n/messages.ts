@@ -76,6 +76,17 @@ export const messages = {
     ar: "أشوف فلوس بس ما قدرت أعرف نوع العملة.",
     en: "I see money but couldn't identify the currency.",
   },
+  // Face enrollment — the two STATIC step prompts (the success message is
+  // dynamic because it embeds the name, so it is not bundled). Kept here in the
+  // i18n source of truth so the pre-bundled-phrase generator can read them.
+  enrollPrompt: {
+    ar: "تم التقاط الصورة. من فضلك قل اسم الشخص.",
+    en: "Photo captured. Please say the person's name.",
+  },
+  enrollFailed: {
+    ar: "فشل تسجيل الوجه. حاول مرة ثانية.",
+    en: "Face enrollment failed. Please try again.",
+  },
   // Mobile-only — pairing / connection screens
   scanForGlasses: {
     ar: "ابحث عن نظارة",
@@ -110,3 +121,32 @@ export const messages = {
 export function localize(message: BilingualMessage, language: Language): string {
   return message[language];
 }
+
+/**
+ * Message keys whose audio is pre-generated and bundled into the app
+ * (`assets/phrases/<key>.<lang>.mp3`) so the hot, static spoken phrases play
+ * instantly with no `/api/tts` round-trip or ElevenLabs credit spend.
+ *
+ * Scope = phrases that are spoken VERBATIM and frequently. Dynamic strings
+ * (scene descriptions, OCR, the enrollment success line that embeds a name)
+ * are NOT here — they still go through live TTS.
+ *
+ * This list is the single source of truth shared by:
+ *   - `scripts/generate-phrases.ts` (build-time generator)
+ *   - `src/audio/phrases.ts`        (runtime lookup)
+ * Keep the committed mp3s, the require() map in phrases.ts, and this list in
+ * sync — re-run the generator after editing.
+ */
+export const BUNDLED_PHRASE_KEYS = [
+  "didntCatch",
+  "generalError",
+  "unknownCommand",
+  "repeatNoHistory",
+  "glassesDisconnected",
+  "enrollPrompt",
+  "enrollFailed",
+] as const satisfies readonly (keyof typeof messages)[];
+
+export type BundledPhraseKey = (typeof BUNDLED_PHRASE_KEYS)[number];
+
+export const LANGUAGES = ["ar", "en"] as const satisfies readonly Language[];
