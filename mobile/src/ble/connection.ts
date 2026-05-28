@@ -50,3 +50,54 @@ export function useSuhailBluetooth(): MentraBluetoothSession {
   );
   return useMentraBluetooth(options);
 }
+
+/* ── Imperative connection state (for non-React modules) ──────────────────── */
+
+/**
+ * The `@mentra/bluetooth-sdk` public `addListener` / `useBluetoothEvent` event
+ * map does NOT include `glasses_status`, so connection state can only be
+ * observed through the React `useMentraBluetooth` session. This tiny store lets
+ * the non-React modules — the camera capture flow and the listening state
+ * machine — read connectivity and react to drops without re-rendering. The
+ * React layer (HomeScreen) mirrors `session.glasses.connected` into it on every
+ * change via {@link setGlassesConnected}.
+ */
+let glassesConnected = false;
+const disconnectListeners = new Set<() => void>();
+
+/** Last connection state pushed from the React session. Best-effort: lets the
+ *  camera flow fail fast instead of hanging on a dead BLE link. */
+export function isGlassesConnected(): boolean {
+  return glassesConnected;
+}
+
+/**
+ * Subscribe to glasses disconnects (connected → disconnected transitions).
+ * Returns an unsubscribe fn. Fired synchronously by {@link setGlassesConnected}.
+ */
+export function onGlassesDisconnected(cb: () => void): () => void {
+  disconnectListeners.add(cb);
+  return () => {
+    disconnectListeners.delete(cb);
+  };
+}
+
+/**
+ * Push the latest connection state from the React session. Call from a
+ * `useEffect` keyed on `session.glasses.connected`. Fires the disconnect
+ * listeners on a true → false transition; idempotent otherwise.
+ */
+export function setGlassesConnected(next: boolean): void {
+  const was = glassesConnected;
+  glassesConnected = next;
+  if (was && !next) {
+    logger.warn("glasses disconnected — notifying listeners");
+    for (const cb of [...disconnectListeners]) {
+      try {
+        cb();
+      } catch (err) {
+        logger.error("disconnect listener threw:", err);
+      }
+    }
+  }
+}

@@ -28,6 +28,10 @@ export const messages = {
     ar: "عذراً، ما قدرت أعالج طلبك. حاول مرة ثانية.",
     en: "Sorry, I couldn't process that. Please try again.",
   },
+  glassesDisconnected: {
+    ar: "انقطع الاتصال بالنظارة.",
+    en: "Lost connection to the glasses.",
+  },
   noResult: {
     ar: "ما قدرت ألاقي نتيجة.",
     en: "I couldn't find a result.",
