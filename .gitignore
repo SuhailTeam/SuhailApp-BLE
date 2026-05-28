@@ -12,3 +12,12 @@ venv/
 
 # Superpowers brainstorm mockups
 .superpowers/
+
+# GP2 testing — generated logs, raw measurement data, and result JSON.
+# The committed gp2_test_results.md and the harness/data READMEs are kept.
+logs/
+testing/**/data/**
+!testing/**/data/
+!testing/**/data/README.md
+testing/results/*
+!testing/results/gp2_test_results.md

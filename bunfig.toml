@@ -1,0 +1,11 @@
+# Bun test configuration for the Suhail RELAY/server package (repo root).
+#
+# Tests live under testing/ (Tier 1 relay unit + Tier 2 relay integration) and
+# run in plain Bun — external services (OpenRouter, AWS, ElevenLabs) are stubbed
+# at the fetch/adapter boundary, so no network and no keys are needed.
+#
+# `root = "testing"` scopes the scan to this package's testing/ dir so a bare
+# `bun test` at the repo root does NOT also pick up mobile/testing/** (which
+# needs the mobile preload). Run the mobile suite separately: cd mobile && bun test
+[test]
+root = "testing"
