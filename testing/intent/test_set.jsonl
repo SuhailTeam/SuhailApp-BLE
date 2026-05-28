@@ -1,0 +1,233 @@
+{"utterance": "describe my surroundings", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "what's around me", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "what's going on around me", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "tell me what you see", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "describe the scene in front of me", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "what does this place look like", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "give me a summary of what's in front of me", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "where am I, describe it", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "what's in the room", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "paint me a picture of my surroundings", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "tell me about my environment", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "describe what is in front of me right now", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "I want to know what's near me", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "explain the scene", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "what's the setting here", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "look around and tell me what's there", "language": "en", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "read this text", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read this for me", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "what does this sign say", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read the label on this bottle", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "can you read this document to me", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read the menu", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "what is written here", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read the text on the screen", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read me what's on this paper", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read out this letter", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "what's printed on this box", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read the instructions on this package", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read this receipt", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "tell me what the page says", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "read aloud the words on this card", "language": "en", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "who is this", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "who is in front of me", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "who is this person", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "do you recognize this person", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "I want to know who's standing there", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "can you tell me who I'm talking to", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "identify the person in front of me", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "who's here with me", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "is this someone I know", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "tell me who that is", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "name the person ahead of me", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "who am I looking at", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "do you know who this is", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "whose face is this", "language": "en", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "enroll this person", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "remember this face", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "save this person's face", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "add this person to my contacts", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "I want you to remember this person", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "memorize this face for later", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "register this person", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "learn this face", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "store this person so you know them next time", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "keep this face in memory", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "add a new person to recognize", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "save this new face", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "remember who this is", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "teach yourself this person's face", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "enroll my friend here", "language": "en", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "find my keys", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "where is my phone", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "I lost my wallet, help me find it", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "look for my glasses", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "can you locate my water bottle", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "help me find the remote", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "where did I put my cane", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "search for my bag", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "find the door handle", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "where are my shoes", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "I can't find my mug, where is it", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "locate the light switch", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "find my medication", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "where's the chair", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "help me locate the trash can", "language": "en", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "count my money", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "how much money is this", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "what bill is this", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "how much cash do I have here", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "what denomination is this note", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "tell me how much this is worth", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize", "visual-qa"], "source": "author-curated"}
+{"utterance": "identify this banknote", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "count the bills in my hand", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "how many riyals is this", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "what's the value of this money", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "is this a fifty or a hundred", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "read the amount on this bill", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize", "ocr-read-text"], "source": "author-curated"}
+{"utterance": "how much currency am I holding", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "tell me the total of these notes", "language": "en", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "what color is this", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what color is this shirt", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "tell me the color of this", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what color am I wearing", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "is this red or green", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what's the color of these pants", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "identify the color of this object", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what shade is this", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "does this match, what color is it", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "tell me the colour of my tie", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what color is the wall", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what color are these socks", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "name the color in front of me", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "what color is the sky", "language": "en", "expected_intent": "color-detect", "acceptable_intents": ["color-detect", "visual-qa"], "source": "author-curated"}
+{"utterance": "is the food on this plate cooked", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "how many people are in this room", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is the stove turned on", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is this milk expired", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa", "ocr-read-text"], "source": "author-curated"}
+{"utterance": "is the door open or closed", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is it sunny or cloudy outside the window", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "what brand is this product", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa", "ocr-read-text"], "source": "author-curated"}
+{"utterance": "is my coffee cup empty", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "are the lights on in here", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is the dog sitting or standing", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "what fruit is this", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is there anything spilled on the floor", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "does this plant need water", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "is the traffic light red", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa", "color-detect"], "source": "author-curated"}
+{"utterance": "what kind of car is parked there", "language": "en", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "صف ما حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وش حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "قول لي وش تشوف", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "صف لي المكان اللي قدامي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وش اللي قدامي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "اوصف لي المشهد", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وش الموجود في الغرفة", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "اعطني فكرة عن المكان حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وين انا ووش حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "صف لي البيئة اللي حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وش اللي قاعد يصير حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "تكلم عن المكان اللي انا فيه", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وش تشوف قدامي الحين", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "ابغى اعرف وش حولي", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "وضح لي المنظر", "language": "ar", "expected_intent": "scene-summarize", "acceptable_intents": ["scene-summarize"], "source": "author-curated"}
+{"utterance": "اقرأ هذا النص", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ لي هذا", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "وش مكتوب في هذي اللافتة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ الملصق على القارورة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "ممكن تقرأ لي هذي الورقة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ لي قائمة الطعام", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "وش مكتوب هنا", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ النص اللي على الشاشة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ لي وش مكتوب في هذي الرسالة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ التعليمات على العلبة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ لي الفاتورة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "قول لي وش مكتوب في الصفحة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ الكلام المكتوب على البطاقة", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "اقرأ لي الكتاب", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "وش مكتوب على هذا الصندوق", "language": "ar", "expected_intent": "ocr-read-text", "acceptable_intents": ["ocr-read-text"], "source": "author-curated"}
+{"utterance": "من هذا", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "من اللي قدامي", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "من هذا الشخص", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "تعرف مين هذا", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "ابغى اعرف مين واقف هناك", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "قول لي مع مين اتكلم", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "تعرف على الشخص اللي قدامي", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "مين معي هنا", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "هل هذا شخص اعرفه", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "قول لي مين هذا", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "مين الشخص اللي امامي", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "على مين اطالع", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "تعرف صاحب هذا الوجه", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "هذا وجه مين", "language": "ar", "expected_intent": "face-recognize", "acceptable_intents": ["face-recognize"], "source": "author-curated"}
+{"utterance": "سجل هذا الشخص", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "احفظ هذا الوجه", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "احفظ وجه هذا الشخص", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "ضيف هذا الشخص لجهات الاتصال", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "ابغاك تتذكر هذا الشخص", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "تذكر هذا الوجه للمرة الجاية", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "سجل وجه جديد", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "تعلم هذا الوجه", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "خزن هذا الشخص عشان تعرفه بعدين", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "احتفظ بهذا الوجه في الذاكرة", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "ضيف شخص جديد للتعرف عليه", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "سجل صاحبي اللي هنا", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "تذكر مين هذا الشخص", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "احفظ هذا الشخص الجديد", "language": "ar", "expected_intent": "face-enroll", "acceptable_intents": ["face-enroll"], "source": "author-curated"}
+{"utterance": "دور على مفاتيحي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "وين جوالي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "ضيعت محفظتي ساعدني الاقيها", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "دور على نظارتي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "ممكن تلقى قارورة الماء", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "ساعدني الاقي الريموت", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "وين حطيت عصاي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "دور على شنطتي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "لقي لي مقبض الباب", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "وين حذائي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "ما القى كوبي وينه", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "حدد لي مكان مفتاح الإضاءة", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "دور على دوائي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "وين الكرسي", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "ساعدني الاقي سلة المهملات", "language": "ar", "expected_intent": "find-object", "acceptable_intents": ["find-object"], "source": "author-curated"}
+{"utterance": "احسب فلوسي", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "كم هذي الفلوس", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "وش هذي الورقة النقدية", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "كم فلوس عندي هنا", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "وش فئة هذي الورقة", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "قول لي كم تسوى هذي", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize", "visual-qa"], "source": "author-curated"}
+{"utterance": "تعرف هذي العملة", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "عد الأوراق اللي في يدي", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "كم ريال هذي", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "وش قيمة هذي الفلوس", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "هذي خمسين ولا مية", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "كم العملة اللي ماسكها", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "قول لي مجموع هذي الأوراق", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "كم مبلغ الفلوس هذي", "language": "ar", "expected_intent": "currency-recognize", "acceptable_intents": ["currency-recognize"], "source": "author-curated"}
+{"utterance": "وش لون هذا", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش لون هذا القميص", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "قول لي لون هذا الشي", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش اللون اللي لابسه", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "هذا احمر ولا اخضر", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش لون هذا البنطلون", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "حدد لون هذا الغرض", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش درجة هذا اللون", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "قول لي لون ربطة العنق", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش لون الجدار", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش لون هذي الجرابات", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "سمي اللون اللي قدامي", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "هذا لونه فاتح ولا غامق", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect"], "source": "author-curated"}
+{"utterance": "وش لون السماء", "language": "ar", "expected_intent": "color-detect", "acceptable_intents": ["color-detect", "visual-qa"], "source": "author-curated"}
+{"utterance": "هل الأكل في الصحن مطبوخ", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "كم شخص في الغرفة", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل الفرن شغال", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل هذا الحليب منتهي الصلاحية", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa", "ocr-read-text"], "source": "author-curated"}
+{"utterance": "الباب مفتوح ولا مسكر", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "الجو مشمس ولا غايم برا النافذة", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "وش ماركة هذا المنتج", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa", "ocr-read-text"], "source": "author-curated"}
+{"utterance": "هل كوب القهوة فاضي", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل الأضواء مولعة هنا", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل الكلب قاعد ولا واقف", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "وش نوع هذي الفاكهة", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل في شي مسكوب على الأرض", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "هل هذا النبات يحتاج ماء", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}
+{"utterance": "وش نوع السيارة المتوقفة هناك", "language": "ar", "expected_intent": "visual-qa", "acceptable_intents": ["visual-qa"], "source": "author-curated"}

@@ -1,0 +1,7 @@
+# Bun test configuration for the Suhail mobile (BLE) package.
+#
+# Tests live under mobile/testing/ and exercise the real production modules in
+# mobile/src/ with native packages (MMKV, Bluetooth SDK, expo-audio) stubbed by
+# the preload. Run with:  cd mobile && bun test
+[test]
+preload = ["./testing/preload.ts"]

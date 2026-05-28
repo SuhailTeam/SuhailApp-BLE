@@ -1,0 +1,14 @@
+{
+  "//": "Typechecks the GP2 testing harness (relay/server side). The production tsconfig.json has rootDir=./src and only includes src/**, so it does not cover testing/. Run: bunx tsc -p tsconfig.test.json --noEmit (wired as `bun run typecheck:test`).",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": ".",
+    "types": ["bun", "node"]
+  },
+  "include": ["src/**/*.ts", "testing/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

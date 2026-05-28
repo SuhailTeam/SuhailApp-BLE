@@ -23,13 +23,16 @@ const region = config.awsRegion;
 const rekognition = new RekognitionClient({ region });
 let collectionReadyPromise: Promise<void> | null = null;
 
-/** Encode a name to an ASCII-safe ExternalImageId (hex of UTF-8 bytes). */
-function encodeName(name: string): string {
+/** Encode a name to an ASCII-safe ExternalImageId (hex of UTF-8 bytes).
+ *  Exported (with decodeName) for the GP2 round-trip property test
+ *  (testing/unit/external-image-id.test.ts, §4.11). Backward-compatible —
+ *  no behaviour change; rationale in the results-doc methodology notes. */
+export function encodeName(name: string): string {
   return Buffer.from(name, "utf8").toString("hex");
 }
 
 /** Decode a hex-encoded ExternalImageId back to the original name. */
-function decodeName(encoded: string): string {
+export function decodeName(encoded: string): string {
   return Buffer.from(encoded, "hex").toString("utf8");
 }
 
