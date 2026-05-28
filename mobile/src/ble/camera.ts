@@ -1,10 +1,19 @@
 import BluetoothSdk, { type PhotoResponseEvent } from "@mentra/bluetooth-sdk";
 import { mintPhotoUploadUrl, waitForPhotoUpload } from "../relay/photo";
+import { isGlassesConnected, onGlassesDisconnected } from "./connection";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("BLE.Camera");
 
 const APP_ID = "com.suhail.assistant.ble";
+
+/**
+ * Thrown when a capture is aborted by a glasses BLE drop (either already gone
+ * when the capture starts, or dropped mid-flight). The listening state machine
+ * treats this like a cancellation — it does NOT speak the generic error,
+ * because the disconnect handler speaks its own "lost connection" message.
+ */
+export const GLASSES_DISCONNECTED_ERROR = "glasses disconnected";
 
 /**
  * Per-capture outer timeout. Photo capture + upload over BLE is usually 3-8s.
@@ -84,6 +93,14 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
   const size = opts.size ?? "large";
   const compress = opts.compress ?? "medium";
 
+  // Fail fast if the glasses are already gone — no point minting an upload URL
+  // the glasses can't POST to, or waiting out the 25s outer timeout. Mid-flight
+  // drops are caught by the disconnect racer below.
+  if (!isGlassesConnected()) {
+    logger.warn("capture requested but glasses are disconnected — failing fast");
+    throw new Error(GLASSES_DISCONNECTED_ERROR);
+  }
+
   // Step 1: mint upload URL.
   const { photoToken, uploadUrl } = await mintPhotoUploadUrl(opts.signal);
   if (opts.signal?.aborted) throw new Error("aborted");
@@ -91,14 +108,16 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
   const requestId = photoToken; // use the photoToken so server+mobile logs cross-reference
   logger.info(`capture requested: token=${photoToken.slice(0, 8)}... size=${size} compress=${compress}`);
 
-  // Race three signals:
+  // Race four signals:
   //   A) wait endpoint resolves on successful upload   → return photoToken
   //   B) photo_response fires with state="error"       → fail fast
-  //   C) outer timeout / external abort                → fail with timeout/abort
+  //   C) glasses drop off BLE mid-capture              → fail fast
+  //   D) outer timeout / external abort                → fail with timeout/abort
   type Outcome =
     | { kind: "uploaded"; bytes: number }
     | { kind: "ble-error"; message: string; code?: string }
     | { kind: "wait-failed"; err: unknown }
+    | { kind: "disconnected" }
     | { kind: "timeout" };
 
   const waitPromise: Promise<Outcome> = waitForPhotoUpload(photoToken, opts.signal).then(
@@ -118,6 +137,13 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
     }
     // The success variant never fires in 0.1.6 — we ignore it intentionally.
   });
+
+  // Glasses dropping mid-capture would otherwise leave us waiting out the 25s
+  // outer timeout (the BLE requestPhoto call fails silently, and the server
+  // long-poll just times out). Race a disconnect signal so we fail in <1s.
+  let resolveDisconnect!: (outcome: Outcome) => void;
+  const disconnectPromise = new Promise<Outcome>((resolve) => { resolveDisconnect = resolve; });
+  const offDisconnect = onGlassesDisconnected(() => resolveDisconnect({ kind: "disconnected" }));
 
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let abortHandler: (() => void) | null = null;
@@ -150,7 +176,7 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
   });
 
   try {
-    const outcome = await Promise.race([waitPromise, errorPromise, timeoutPromise]);
+    const outcome = await Promise.race([waitPromise, errorPromise, disconnectPromise, timeoutPromise]);
 
     if (outcome.kind === "uploaded") {
       logger.info(`capture ok: ${photoToken.slice(0, 8)}... (${outcome.bytes} bytes)`);
@@ -160,6 +186,10 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
       logger.warn(`capture error from glasses: ${outcome.message} (${outcome.code ?? "no code"})`);
       throw new Error(`glasses photo error: ${outcome.message}`);
     }
+    if (outcome.kind === "disconnected") {
+      logger.warn(`capture aborted: glasses disconnected mid-capture (${photoToken.slice(0, 8)}...)`);
+      throw new Error(GLASSES_DISCONNECTED_ERROR);
+    }
     if (outcome.kind === "wait-failed") {
       logger.warn("upload wait failed:", outcome.err);
       throw new Error(`photo upload timed out or failed: ${outcome.err instanceof Error ? outcome.err.message : String(outcome.err)}`);
@@ -168,6 +198,7 @@ export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" 
     throw new Error(`photo capture timed out after ${CAPTURE_TIMEOUT_MS}ms`);
   } finally {
     errorSub.remove();
+    offDisconnect();
     if (timeoutHandle) clearTimeout(timeoutHandle);
     if (opts.signal && abortHandler) opts.signal.removeEventListener("abort", abortHandler);
   }

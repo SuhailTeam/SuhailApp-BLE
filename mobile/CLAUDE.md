@@ -190,6 +190,7 @@ Transitions:
 - Active + 10s no input → idle.
 - Active + valid transcription → processing.
 - Processing complete → idle.
+- **Glasses disconnect (active/processing, or enrollment pending) → abort + speak `glassesDisconnected`.** Connection state can't be observed via `addListener` (the public event map omits `glasses_status`), so `ble/connection.ts` keeps a small imperative store (`isGlassesConnected`/`onGlassesDisconnected`/`setGlassesConnected`) fed from the React session by HomeScreen. `camera.ts` fail-fasts on it (pre-check + a disconnect racer alongside wait/error/timeout) so a mid-command BLE drop fails in <1s instead of hanging out the 25s `CAPTURE_TIMEOUT_MS`; the listening machine aborts in-flight work and speaks the notice (kept out of the generic-error path via the `GLASSES_DISCONNECTED_ERROR` marker). `lastResponse` is preserved across the drop.
 
 Recreate the `pendingEnrollments` map for the 2-step face enrollment flow — see [`src/commands/face-enroll.ts`](../src/commands/face-enroll.ts) for the exact 30s timeout + TTS echo detection + concurrency lock.
 
