@@ -21,6 +21,8 @@ import { normalizeTranscription } from "./utils/transcription-normalizer";
 import { capturePhoto } from "./utils/image-utils";
 import { startTimeline, endTimeline, mark } from "./utils/timeline";
 import { getSettings, updateSettings, initSettingsFromStorage, clearSettingsSession } from "./services/settings-store";
+import { registerRelayRoutes } from "./relay/routes";
+import { probeOpenRouterStatus } from "./services/openrouter-status";
 
 const logger = new Logger("SuhailApp");
 
@@ -125,6 +127,10 @@ export class SuhailApp extends AppServer {
   async initialize(): Promise<void> {
     await this.ai.loadPersistedFaces();
     await ensureCuesGenerated();
+    // Probe OpenRouter so an expired/over-quota key surfaces loudly at boot
+    // instead of silently degrading intent classification + normalize to
+    // their fallback paths. Best-effort, never blocks startup.
+    await probeOpenRouterStatus();
   }
 
   /**
@@ -133,9 +139,19 @@ export class SuhailApp extends AppServer {
    */
   private registerApiRoutes(): void {
     const expressApp = this.getExpressApp();
-    // Enable JSON body parsing for API routes (needed for PUT /api/faces/:faceId)
+    // Enable JSON body parsing for API routes (needed for PUT /api/faces/:faceId).
+    //
+    // Limit bumped from Express's default 100KB to 10MB to match the relay
+    // router's own override. The default was rejecting /api/stt requests
+    // ≥ ~2.4s of audio (base64 PCM of a 2.5s 16kHz/16-bit/mono clip is ~107KB,
+    // right past the default) with HTTP 413 BEFORE the relay router's
+    // 10mb-limited json() saw the body — Mac-Claude found this on PR #12+#13
+    // hardware testing.
+    //
+    // Existing routes that read JSON (settings PUT, faces rename) send tiny
+    // bodies, so the larger limit doesn't expand attack surface for them.
     const { json, static: serveStatic } = require("express");
-    expressApp.use("/api", json());
+    expressApp.use("/api", json({ limit: "10mb" }));
 
     // Serve generated audio cues at /cues/*.wav (consumed by session.audio.playAudio)
     expressApp.use("/cues", serveStatic("./public/cues", { maxAge: "1h" }));
@@ -225,6 +241,10 @@ export class SuhailApp extends AppServer {
     });
 
     logger.info("API routes registered (/api/status, /api/activity, /api/faces, /api/settings, /webview)");
+
+    // BLE-mobile relay endpoints (POST /api/intent, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}).
+    // Authenticated via HMAC-Bearer (RELAY_SHARED_SECRET); see src/relay/auth.ts.
+    registerRelayRoutes(expressApp);
   }
 
   /**

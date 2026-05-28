@@ -1,6 +1,9 @@
-import type { Language } from "../types";
+import type { Language } from "../i18n/messages";
 
-const ARABIC_SCRIPT = /[\u0600-\u06FF]/;
+// Ported verbatim from src/utils/transcription-filter.ts so cloud + mobile
+// reject the same garbage. Update both halves when changing thresholds.
+
+const ARABIC_SCRIPT = /[؀-ۿ]/;
 const SPECIAL_CHARS = /[^\p{L}\p{N}\s]/gu;
 const REPEATED_WORD = /\b(\w+)\s+(\1\s+){3,}/i;
 
@@ -21,7 +24,7 @@ export function isValidTranscription(text: string, lang: Language): boolean {
   // Reject excessive word repetition (STT stutter artifacts)
   if (REPEATED_WORD.test(trimmed)) return false;
 
-  // Script mismatch: reject if zero characters of the expected script (and text is non-trivial)
+  // Script mismatch: reject if zero characters of the expected script (and text is non-trivial).
   // Note: when lang="en", Arabic-script text is allowed through — it may be a
   // phonetic transliteration of English that the normalizer will handle downstream.
   if (trimmed.length > 3) {
@@ -32,9 +35,9 @@ export function isValidTranscription(text: string, lang: Language): boolean {
 }
 
 /**
- * Returns true if the text appears to be in a mismatched script for the
- * configured language, indicating it may need LLM normalization.
- * Specifically: Arabic-script-only text when lang="en".
+ * True if the text appears to be in a mismatched script for the configured
+ * language, suggesting it should be sent through LLM normalization before
+ * being routed.
  */
 export function needsScriptNormalization(text: string, lang: Language): boolean {
   if (lang !== "en") return false;
@@ -45,21 +48,19 @@ export function needsScriptNormalization(text: string, lang: Language): boolean 
 
 /**
  * Strips parenthetical annotations from STT output. ElevenLabs Scribe inserts
- * non-verbal sound events like "(clicks tongue)", "(coughs)", "(laughs)"
- * inline with transcribed speech. They confuse the intent classifier and can
- * be the entire short utterance ("(coughs)") if the user only made a sound.
+ * non-verbal sound events like "(clicks tongue)", "(coughs)", "(knocks on
+ * table)" inline with transcribed speech.
  *
- * Surfaced in PR #7 hardware test:
- *   "Describe my surroundings (clicks tongue)."
+ * Mirrors `stripAnnotations` in src/utils/transcription-filter.ts (server)
+ * byte-for-byte. The server runs this in /api/intent + /api/normalize before
+ * the classifier. Mobile needs it too for paths that DON'T go through the
+ * intent classifier — specifically the face-enrollment name capture
+ * (mobile/src/state/listening.ts intercepts the second-swipe transcription
+ * before /api/intent ever runs, so the server-side strip never fires there).
  *
- * Three-pass cleanup so we don't leave orphan whitespace or punctuation
- * (the original single-regex version produced "Describe my surroundings ."
- * with a stray space before the period — PR #10 review finding #4):
- *
+ * Three-pass cleanup so we don't leave orphan whitespace or punctuation:
  *   1. replace "(...)" + surrounding whitespace with a single space
- *      (keep word separation when annotation is mid-sentence)
- *   2. drop any space that ended up before a sentence-final mark
- *      (.,!?;:) — fixes "surroundings ." → "surroundings."
+ *   2. drop any space before sentence-final punctuation
  *   3. collapse runs of whitespace + trim ends
  */
 export function stripAnnotations(text: string): string {

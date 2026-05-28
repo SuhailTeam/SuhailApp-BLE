@@ -41,4 +41,22 @@ export const config = {
    * Dev: your ngrok URL. Prod: Railway URL. When set, short chimes replace the
    * "Listening" / "Got it" / "Cancelled" TTS cues (saves ~4-5s per command). */
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, ""),
+
+  /** Shared secret for the BLE mobile app's HMAC-Bearer auth on the relay
+   * endpoints (/api/intent, /api/vision/*, /api/faces/* POST, /api/tts).
+   * When empty, relay endpoints are open (dev mode — startup warning printed). */
+  relaySharedSecret: process.env.RELAY_SHARED_SECRET || "",
+
+  /** ElevenLabs API key for the relay's /api/tts endpoint. Held only on the
+   * server — never shipped to the mobile binary. When empty, /api/tts returns
+   * 503 with a clear error message. */
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || "",
+
+  /** Default ElevenLabs voice ID used when /api/tts is called without a voice
+   * override. Falls back to "Rachel" (a stock multilingual voice). */
+  elevenLabsDefaultVoiceId: process.env.ELEVENLABS_DEFAULT_VOICE_ID || "21m00Tcm4TlvDq8ikWAM",
+
+  /** ElevenLabs TTS model. Defaults to flash v2.5 (multilingual, ~75ms latency)
+   * to match the Mentra-mediated TTS the cloud app uses. */
+  elevenLabsModel: process.env.ELEVENLABS_MODEL || "eleven_flash_v2_5",
 } as const;

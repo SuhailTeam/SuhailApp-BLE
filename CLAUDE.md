@@ -8,32 +8,33 @@ Suhail is an AI-powered assistive app for **visually impaired users**, built for
 
 **Critical constraint:** Mentra Live glasses have a camera, microphone, speakers, LEDs, and WiFi — but **NO display**. All output MUST go through `session.audio.speak()`. Do not use `session.layouts` — it exists on the session object but has no effect since Mentra Live has no screen.
 
+### Two clients, one server
+
+This repo's root `src/` is a single Bun/TypeScript server that serves **two** glasses clients:
+
+1. **MentraOS cloud app** (`src/app.ts` → `onSession`) — the original path. Glasses ↔ phone (Mentra app) ↔ MentraOS Cloud ↔ this server, over WebSocket. Voice commands via swipe + transcription; the server speaks results back. **Most of this file documents this path.**
+2. **BLE mobile app** (`mobile/` — see `mobile/CLAUDE.md`) — a React Native / Expo app using `@mentra/bluetooth-sdk` to talk to the glasses **directly over Bluetooth**, calling this server's HMAC-authenticated **`/api/*` relay** (`src/relay/`) for the AI work (intent, vision, faces, STT, TTS, photo capture). See **Relay API** below.
+
+The vision/face/routing **services are shared** by both paths — the cloud app calls them in-process via command handlers; the mobile app calls them over HTTP via the relay.
+
 ## Environments
 
-The project runs in two environments:
-
 ### Local Development
-- Run the server locally with `bun run dev` (auto-restart) or `bun run start`
-- Expose the local server to the internet with `ngrok http 3000 --url=unplummeted-teddy-extractable.ngrok-free.dev`
-- Static ngrok URL: `https://unplummeted-teddy-extractable.ngrok-free.dev`
-- This URL is set in the Mentra Developer Console as the webhook URL
-- Use `.env` file for environment variables
-- Good for rapid iteration and debugging
+- Run the server with `bun run dev` (auto-restart) or `bun run start`.
+- Expose it with `ngrok http 3000 --url=unplummeted-teddy-extractable.ngrok-free.dev` (static URL `https://unplummeted-teddy-extractable.ngrok-free.dev`), set as the webhook URL in the Mentra Developer Console and as the relay base URL for the mobile app.
+- Use `.env` for environment variables.
 
 ### Production (Railway)
-- The `main` branch is deployed on **Railway** (cloud hosting)
-- Railway provides the public URL — no ngrok needed
-- Environment variables are set in Railway's dashboard
-- Push to `main` triggers automatic deployment
+- The `main` branch auto-deploys to **Railway** on push — Railway provides the public URL (no ngrok); env vars live in its dashboard.
 
 ## Tech Stack
 
-- **Runtime:** Bun (not Node.js) — use `bun run start`, `bun install`, etc.
+- **Runtime:** Bun (not Node.js) — `bun run start`, `bun install`, etc.
 - **Language:** TypeScript (strict mode)
-- **SDK:** `@mentra/sdk` (MentraOS TypeScript SDK)
+- **SDK:** `@mentra/sdk` (MentraOS cloud app). The mobile app uses `@mentra/bluetooth-sdk`.
 - **Package manager:** Bun
-- **Storage:** AWS Rekognition (face collection) + local filesystem (`data/faces/`) for face photos and metadata. The SDK provides `session.simpleStorage` (persistent, cloud-synced key-value store, ~10MB per user) which is available for future use
-- **AI services:** OpenRouter (Google Gemini 2.5 Flash Lite) for vision + intent classification, AWS Rekognition for face recognition
+- **Storage:** AWS Rekognition (face collection) + local filesystem (`data/faces/`) for face photos/metadata; in-memory `photo-cache` for the BLE capture flow. The SDK also provides `session.simpleStorage` (cloud-synced KV, ~10MB/user) for future use.
+- **AI services:** OpenRouter (Google Gemini 2.5 Flash Lite) for vision + intent classification; AWS Rekognition for face recognition; **ElevenLabs** for TTS (via MentraOS for the cloud app; direct TTS + Scribe STT on the relay for the mobile app).
 
 ## Mentra Live Hardware
 
@@ -54,25 +55,11 @@ Other glasses (Even Realities G1, Vuzix Z100) have displays but no camera/speake
 
 ## How MentraOS Works
 
-MentraOS apps are **server-side TypeScript applications**. The architecture:
+MentraOS apps are **server-side TypeScript applications**: `Mentra Live Glasses <-> User's Phone (Mentra App) <-> MentraOS Cloud (WebSocket) <-> YOUR SERVER`.
 
-```
-Mentra Live Glasses <-> User's Phone (Mentra App) <-> MentraOS Cloud (WebSocket) <-> YOUR SERVER
-```
+**Session lifecycle:** user launches your app → MentraOS Cloud POSTs a webhook (`sessionId`, `userId`) → your server opens a WebSocket → **`onSession(session, sessionId, userId)`** is your entry point → glasses stream events / server sends audio → session ends (user stop, disconnect, network error, or `session.disconnect()`) → **`onStop(sessionId, userId, reason)`** (session object NOT available here).
 
-### Session Lifecycle
-1. User launches your app from the Mentra phone app
-2. MentraOS Cloud sends an HTTP POST webhook to your server with `sessionId` and `userId`
-3. Your server establishes a WebSocket connection to MentraOS Cloud
-4. `onSession(session, sessionId, userId)` is called — this is your entry point
-5. Session is active — glasses stream events, server sends audio responses
-6. Session ends via: user stopping app, glasses disconnect, network error, or `session.disconnect()`
-7. `onStop(sessionId, userId, reason)` is called (session object is NOT available here)
-
-### Voice Commands — How They Work
-There is **no built-in wake word or command system** from Mentra. The SDK gives you **raw transcription text** via `session.events.onTranscriptionForLanguage(langCode, handler, opts)`. Your app is responsible for parsing commands from that text. The Suhail app uses **LLM-based intent classification** (via OpenRouter) with keyword matching as a fallback — see `command-router.ts`.
-
-**Swipe-to-command:** The user swipes **forward** on the swipe pad to activate a ~10 second listening window. The next voice transcription is processed as a command without needing a wake word. Swiping **backward** repeats the last response. The left button also works as a fallback (short press = interrupt + re-listen, long press = repeat). This prevents accidental triggers from background conversation and is more reliable than speech-based wake words.
+**Voice commands:** there is **no built-in wake word**. The SDK gives you **raw transcription text** via `onTranscriptionForLanguage(langCode, handler, opts)`; your app parses commands from it. Suhail uses **LLM intent classification** (OpenRouter) with keyword matching as a fallback — see `command-router.ts`. **Swipe-to-command:** forward swipe opens a ~10s listening window (next transcription is treated as a command, no wake word); backward swipe repeats the last response; the left button is a fallback (short press = interrupt + re-listen, long press = repeat). This avoids accidental triggers from background conversation.
 
 ## MentraOS SDK Reference
 
@@ -82,30 +69,20 @@ There is **no built-in wake word or command system** from Mentra. The SDK gives 
 import { AppServer, AppSession } from "@mentra/sdk";
 
 class MyApp extends AppServer {
-  // Called when a user connects
-  override async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> { }
-
-  // Called when a session ends (session object NOT available here)
-  override async onStop(sessionId: string, userId: string, reason: string): Promise<void> { }
+  override async onSession(session: AppSession, sessionId: string, userId: string) { }
+  override async onStop(sessionId: string, userId: string, reason: string) { }  // session NOT available here
 }
 
-// Constructor config
 new AppServer({
-  packageName: "com.suhail.assistant",  // Must match Mentra Developer Console
-  apiKey: "your_mentra_api_key",
-  port: 3000,
-  publicDir: false,       // Static files directory (optional)
-  healthCheck: true,      // Enable /health endpoint (optional)
+  packageName: "com.suhail.assistant",  // must match Mentra Developer Console
+  apiKey: "...", port: 3000,
+  publicDir: false,    // static files dir (optional)
+  healthCheck: true,   // enable /health endpoint (optional)
 });
-
-app.start();   // Launch server
-app.stop();    // Stop server
+app.start();  // app.stop() to stop
 ```
 
-Additional AppServer methods:
-- `getExpressApp()` — returns the underlying Express app instance
-- `generateToken(userId, sessionId, secretKey)` — generates JWT for webview auth
-- `addCleanupHandler(handler)` — registers cleanup function
+Other methods: `getExpressApp()` (underlying Express app), `generateToken(userId, sessionId, secretKey)` (JWT for webview auth), `addCleanupHandler(handler)`.
 
 ### Session Properties
 
@@ -116,7 +93,7 @@ Additional AppServer methods:
 | `session.camera` | `CameraManager` | Photo capture and video streaming |
 | `session.led` | `LedModule` | Control RGB LEDs (Mentra Live only) |
 | `session.location` | `LocationManager` | GPS location access |
-| `session.device` | `DeviceManager` | Reactive observables for battery, charging, case battery/charging, and wifi state |
+| `session.device` | `DeviceManager` | Reactive observables for battery, charging, case battery/charging, wifi |
 | `session.simpleStorage` | `SimpleStorage` | Persistent key-value storage (cloud-synced) |
 | `session.settings` | `SettingsManager` | App settings from Developer Console |
 | `session.capabilities` | `Capabilities \| null` | Detect device hardware at runtime |
@@ -126,410 +103,216 @@ Additional AppServer methods:
 
 ### Events (session.events)
 
-This section documents the four event helpers Suhail actually subscribes to. The SDK exposes many more (head position, VAD, phone notifications, battery events, audio chunks, location, connection lifecycle, settings updates) — see "Available but unused events" below if you ever need them.
+Suhail subscribes to four event helpers. The SDK exposes many more — see "Available but unused events".
 
 ```typescript
-// Voice transcription, locked to a specific language.
-// Suhail uses this instead of the generic onTranscription() because we want
-// the configured language only — no auto-detected switching mid-session.
+// Voice transcription locked to one language (Suhail uses this over generic onTranscription()
+// to avoid mid-session auto-detect switching):
 session.events.onTranscriptionForLanguage(
-  langCode,                          // e.g. "ar-SA" or "en-US"
+  langCode,                                  // e.g. "ar-SA" | "en-US"
   async (data) => {
-    // data.text             — transcribed text (string)
-    // data.isFinal          — boolean, true when user finished speaking (ALWAYS check this)
-    // data.confidence       — confidence score 0-1
-    // data.detectedLanguage — what STT actually detected (may differ from langCode)
-    // data.timestamp        — Date
+    // data.text, data.isFinal (ALWAYS check — true when user finished), data.confidence (0-1),
+    // data.detectedLanguage (what STT detected, may differ from langCode), data.timestamp (Date)
   },
-  { disableLanguageIdentification: true }  // skip auto-detect, trust langCode
+  { disableLanguageIdentification: true }    // skip auto-detect, trust langCode
 );
 
-// Button press (Mentra Live has 2 buttons: "left" and "right"/"camera")
-session.events.onButtonPress((event: ButtonPress) => {
-  // event.buttonId  — "left" or "right" (also "camera" as alias for "right")
-  // event.pressType — "short" or "long"
-});
+// Mentra Live has 2 buttons ("left", "right"/"camera") + a swipe pad:
+session.events.onButtonPress((e) => { /* e.buttonId "left"|"right" (alias "camera"); e.pressType "short"|"long" */ });
+session.events.onTouchEvent((e) => { /* e.gesture_name "forward_swipe"|"backward_swipe"|...; e.device_model? */ });
+session.events.onPermissionError((data) => { /* camera/mic not granted — speak instruction, stop the operation */ });
 
-// Touch / swipe gestures on the swipe pad
-session.events.onTouchEvent((event) => {
-  // event.gesture_name  — "forward_swipe" | "backward_swipe" | ...
-  // event.device_model? — model string when available
-});
-
-// Permission errors (camera/mic not granted by user)
-session.events.onPermissionError((data) => {
-  // Speak a friendly instruction and stop trying the operation.
-});
-
-// All event listeners return an unsubscribe function:
-const unsubscribe = session.events.onButtonPress(handler);
-unsubscribe(); // stop listening
+// All listeners return an unsubscribe fn:
+const unsubscribe = session.events.onButtonPress(handler); unsubscribe();
 ```
 
 #### Available but unused events
 
-These exist on `session.events` but Suhail does not subscribe to them. Listed for future reference — verify the signature against the SDK source before using.
-
-- `onTranscription(handler)` — generic transcription with language auto-detect. Suhail prefers `onTranscriptionForLanguage` to avoid mid-session language switches.
-- `onHeadPosition(handler)` — head up/down detection
-- `onVoiceActivity(handler)` — is the user currently speaking?
-- `onPhoneNotifications(handler)` — phone notifications forwarded from the Mentra app
-- `onGlassesBattery(handler)` / `onPhoneBattery(handler)` — battery events. **Note:** Suhail uses `session.device.state.batteryLevel.onChange()` instead — see Device State below.
-- `onCalendarEvent(handler)` — calendar events
-- `onAudioChunk(handler)` — raw audio chunks. Requires `session.subscribe([StreamType.AUDIO_CHUNK])` first.
-- `onLocation(handler)` — location updates
-- `onConnected(handler)` / `onDisconnected(handler)` / `onError(handler)` — connection lifecycle
-- `onSettingsUpdate(handler)` — app settings changed in the developer console
+Exist on `session.events` but Suhail doesn't subscribe — verify signatures against the SDK before using: `onTranscription` (generic auto-detect; we prefer `onTranscriptionForLanguage` to avoid mid-session switches), `onHeadPosition`, `onVoiceActivity`, `onPhoneNotifications`, `onCalendarEvent`, `onAudioChunk` (requires `session.subscribe([StreamType.AUDIO_CHUNK])` first), `onLocation`, `onConnected`/`onDisconnected`/`onError`, `onSettingsUpdate`. Battery events `onGlassesBattery`/`onPhoneBattery` also exist, but use `session.device.state.batteryLevel.onChange()` instead (see Device State).
 
 ### Camera (session.camera)
 
 ```typescript
-// Request a photo from the glasses camera
 const photoData = await session.camera.requestPhoto(options?);
-
-// Options:
-interface PhotoRequestOptions {
-  size?: "small" | "medium" | "large" | "full";  // Default: "medium". Avoid "full" on Mentra Live — uploads can take 25s+
-  saveToGallery?: boolean;
-  compress?: "none" | "medium" | "heavy";  // Default: "none"
-  customWebhookUrl?: string;
-  authToken?: string;
-}
-
-// Returns:
-interface PhotoData {
-  buffer: Buffer;      // Raw image bytes
-  mimeType: string;
-  filename: string;
-  size: number;        // bytes
-  requestId: string;
-}
-
-// IMPORTANT: The SDK returns a Buffer, NOT a base64 string.
-// Convert with: photoData.buffer.toString("base64")
-// The method is requestPhoto(), NOT takePhoto()
-
-// Video streaming (managed — MentraOS handles encoding/CDN)
-const result = await session.camera.startManagedStream(options?);
-// Returns: { hlsUrl, dashUrl, webrtcUrl?, streamId, previewUrl, thumbnailUrl }
-await session.camera.stopManagedStream();
-session.camera.onManagedStreamStatus((status) => { });
-// status: "initializing" | "preparing" | "active" | "stopping" | "stopped" | "error"
-
-// Video streaming (unmanaged — direct RTMP)
-await session.camera.startStream({ rtmpUrl: "rtmp://..." });
-await session.camera.stopStream();
-session.camera.onStreamStatus(handler);
-session.camera.isCurrentlyStreaming(): boolean;
+// PhotoRequestOptions: size "small"|"medium"|"large"|"full" (default "medium"; avoid "full" on Mentra Live — uploads 25s+),
+//   saveToGallery?, compress "none"|"medium"|"heavy" (default "none"), customWebhookUrl?, authToken?
+// PhotoData: { buffer: Buffer, mimeType, filename, size (bytes), requestId }
 ```
+
+**IMPORTANT:** `requestPhoto()` returns a **Buffer, NOT base64** — convert with `photoData.buffer.toString("base64")`. The method is `requestPhoto()`, NOT `takePhoto()`.
+
+Video streaming (unused — see "Not Yet Used"). Managed (MentraOS handles encoding/CDN): `startManagedStream(opts)` → `{ hlsUrl, dashUrl, webrtcUrl?, streamId, previewUrl, thumbnailUrl }`, `stopManagedStream()`, `onManagedStreamStatus(cb)` (status: initializing|preparing|active|stopping|stopped|error). Unmanaged RTMP: `startStream({ rtmpUrl })`, `stopStream()`, `onStreamStatus(cb)`, `isCurrentlyStreaming()`.
 
 ### Audio (session.audio)
 
 ```typescript
-// Text-to-speech (uses ElevenLabs)
-const result = await session.audio.speak(text: string, options?: SpeakOptions);
-// Returns: AudioPlayResult { success: boolean, error?: string, duration?: number }
-// TTS has a 60-second timeout
+const result = await session.audio.speak(text, options?);  // ElevenLabs TTS, 60s timeout
+// → AudioPlayResult { success, error?, duration? }
+// SpeakOptions: voice_id?, model_id? (default "eleven_flash_v2_5"), volume? (0-1, default 1.0),
+//   trackId? (Suhail always passes 2 — see below),
+//   voice_settings?: { stability?, similarity_boost?, style? (all 0-1), speed? (0.5-2.0), use_speaker_boost? }
 
-interface SpeakOptions {
-  voice_id?: string;                    // ElevenLabs voice ID
-  model_id?: string;                    // Default: "eleven_flash_v2_5"
-  voice_settings?: {
-    stability?: number;                 // 0-1
-    similarity_boost?: number;          // 0-1
-    style?: number;                     // 0-1
-    speed?: number;                     // 0.5-2.0
-    use_speaker_boost?: boolean;
-  };
-  volume?: number;                      // 0.0-1.0, default 1.0
-  trackId?: number;                     // Audio mixing track. Suhail always passes 2 (see below).
-}
+await session.audio.playAudio({ audioUrl, volume?, stopOtherAudio? });  // NOT playUrl(url)
+session.audio.stopAudio();                                  // stop all
+session.audio.hasPendingRequest(requestId?): boolean;
 ```
 
-**Track convention.** Suhail always speaks on `trackId: 2` (see `src/services/tts-service.ts`). Track 1 is left free so background audio (e.g., a future ambient cue or sound effect via `playAudio`) can play in parallel without interrupting speech. If you add new TTS calls, keep using track 2.
+**Track convention.** Suhail always speaks on `trackId: 2` (see `src/services/tts-service.ts`). Track 1 is left free so background audio (a future ambient cue / sound effect via `playAudio`) can play in parallel without interrupting speech. Keep using track 2 for new TTS calls.
 
-```typescript
-
-// Available TTS models:
-// - "eleven_flash_v2_5" (multilingual, ~75ms latency) — DEFAULT
-// - "eleven_v3" (70+ languages, standard latency)
-// - "eleven_turbo_v2_5" (multilingual, ~250-300ms)
-// - "eleven_multilingual_v2" (29 languages, standard latency)
-
-// Play audio from a URL
-await session.audio.playAudio({ audioUrl: "https://...", volume?: 0.0-1.0, stopOtherAudio?: true });
-// NOTE: The method is playAudio({ audioUrl }), NOT playUrl(url)
-
-// Stop all audio
-session.audio.stopAudio();
-
-// Check if audio is still playing
-session.audio.hasPendingRequest(requestId?: string): boolean;
-```
+**TTS models:** `eleven_flash_v2_5` (multilingual, ~75ms — DEFAULT), `eleven_v3` (70+ languages), `eleven_turbo_v2_5` (~250-300ms), `eleven_multilingual_v2` (29 languages).
 
 ### LEDs (session.led) — Mentra Live Only
 
-```typescript
-// Colors: "red" | "green" | "blue" | "orange" | "white"
-await session.led.turnOn({ color: "green", brightness?: number });
-await session.led.turnOff();
-await session.led.blink(color, onTimeMs, offTimeMs, count);
-await session.led.solid(color, durationMs);
-session.led.getCapabilities(); // Returns array of LED info
-// LED commands are fire-and-forget
-```
+Colors: `red`|`green`|`blue`|`orange`|`white`. Commands are fire-and-forget. Methods: `turnOn({ color, brightness? })`, `turnOff()`, `blink(color, onMs, offMs, count)`, `solid(color, durationMs)`, `getCapabilities()` (array of LED info).
 
 ### Location (session.location)
 
 ```typescript
-// Continuous location updates
-const unsubscribe = session.location.subscribeToStream(
-  { accuracy: "standard" },
-  (data: LocationUpdate) => {
-    // data.latitude, data.longitude, data.accuracy (meters), data.altitude?, data.timestamp
-  }
-);
-
-// Single location poll (15-second timeout)
-const loc = await session.location.getLatestLocation({ accuracy: "high" });
-
-// Accuracy options: "realtime" | "high" | "tenMeters" | "standard" | "hundredMeters" | "kilometer" | "threeKilometers" | "reduced"
-
-// Stop all updates
+const unsub = session.location.subscribeToStream({ accuracy: "standard" }, (data) => {
+  // data.latitude, .longitude, .accuracy (meters), .altitude?, .timestamp
+});
+const loc = await session.location.getLatestLocation({ accuracy: "high" });  // single poll, 15s timeout
 session.location.unsubscribeFromStream();
+// accuracy: "realtime"|"high"|"tenMeters"|"standard"|"hundredMeters"|"kilometer"|"threeKilometers"|"reduced"
 ```
 
 Requires `LOCATION` permission in Developer Console.
 
 ### Device State (session.device.state)
 
-Reactive observables for hardware state. Read once with `getSnapshot()`, then subscribe to changes. Suhail uses this to power `/api/status` for the companion `/webview`.
+Reactive observables for hardware state. Read once with `getSnapshot()`, then subscribe. Suhail uses this to power `/api/status` for the companion `/webview`.
 
 ```typescript
-// One-time read of all known state
-const snapshot = session.device.state.getSnapshot();
-// snapshot.batteryLevel      — number (0-100) or null
-// snapshot.charging          — boolean or null
-// snapshot.caseBatteryLevel  — number (0-100) or null
-// snapshot.caseCharging      — boolean or null
-// snapshot.wifiConnected     — boolean or null
-
-// Subscribe to changes (each observable returns an unsubscribe function)
+const s = session.device.state.getSnapshot();
+// fields (each number-or-null / boolean-or-null): batteryLevel (0-100), charging,
+//   caseBatteryLevel (0-100), caseCharging, wifiConnected
+// Each is also an observable with .onChange(cb) returning an unsubscribe fn:
 session.device.state.batteryLevel.onChange((level) => { /* ... */ });
-session.device.state.charging.onChange((charging) => { /* ... */ });
-session.device.state.caseBatteryLevel.onChange((level) => { /* ... */ });
-session.device.state.caseCharging.onChange((charging) => { /* ... */ });
-session.device.state.wifiConnected.onChange((connected) => { /* ... */ });
 ```
 
-Prefer this over `session.events.onGlassesBattery()` for battery state — the observable always reflects the latest known value, and reading `getSnapshot()` on session start gives you immediate state without waiting for an event.
+Prefer this over `session.events.onGlassesBattery()` — the observable always reflects the latest known value, and `getSnapshot()` on session start gives immediate state without waiting for an event.
 
 ### Simple Storage (session.simpleStorage)
 
-Persistent, cloud-synced key-value storage. User-isolated, app-scoped.
+Persistent, cloud-synced, user-isolated, app-scoped key-value store. Values are **strings only** (`JSON.stringify` objects). Limits: ~1MB per value, ~10MB total per user; locally cached for fast reads.
 
-```typescript
-await session.simpleStorage.set(key, value);       // Values are strings only (use JSON.stringify for objects)
-const val = await session.simpleStorage.get(key);
-await session.simpleStorage.hasKey(key);
-await session.simpleStorage.delete(key);
-await session.simpleStorage.clear();
-await session.simpleStorage.keys();
-await session.simpleStorage.size();
-await session.simpleStorage.getAllData();
-await session.simpleStorage.setMultiple({ key1: "val1", key2: "val2" });
-// Limits: ~1MB per value, ~10MB total per user
-// Local caching for fast reads
-```
+Methods (all async): `set(key, value)`, `get(key)`, `hasKey(key)`, `delete(key)`, `clear()`, `keys()`, `size()`, `getAllData()`, `setMultiple({ ... })`.
 
 ### Device Capabilities (session.capabilities)
 
-```typescript
-// Detect hardware at runtime
-if (session.capabilities) {
-  session.capabilities.modelName;    // e.g., "Mentra Live"
-  session.capabilities.hasCamera;    // true
-  session.capabilities.hasDisplay;   // false for Mentra Live
-  session.capabilities.hasMicrophone;
-  session.capabilities.hasSpeaker;
-  session.capabilities.hasButton;
-  session.capabilities.hasLight;     // LEDs
-  session.capabilities.hasIMU;
-  session.capabilities.hasWifi;
-}
-```
+Runtime hardware detection (null-check `session.capabilities` first). Fields: `modelName` (e.g. "Mentra Live"), `hasCamera`, `hasDisplay` (false on Mentra Live), `hasMicrophone`, `hasSpeaker`, `hasButton`, `hasLight` (LEDs), `hasIMU`, `hasWifi`.
 
 ### Settings (session.settings)
 
-Settings are configured in the Mentra Developer Console.
-
-```typescript
-session.settings.get<T>(key, defaultValue?);
-session.settings.has(key);
-session.settings.getAll();
-session.settings.onChange(handler);          // Listen for any setting change
-session.settings.onValueChange<T>(key, handler);  // Listen for specific key
-session.settings.fetch();                   // Force refresh from cloud
-```
+Configured in the Mentra Developer Console. Methods: `get<T>(key, default?)`, `has(key)`, `getAll()`, `onChange(cb)` (any change), `onValueChange<T>(key, cb)` (specific key), `fetch()` (force refresh from cloud).
 
 ### Permissions
 
-Configured in the Mentra Developer Console (not at runtime):
-- `MICROPHONE` — voice input, audio chunks
-- `CAMERA` — photos, video streaming
-- `LOCATION` — GPS coordinates
-- `BACKGROUND_LOCATION` — GPS when app inactive
-- `CALENDAR` — calendar events
-- `READ_NOTIFICATIONS` — phone notifications
-- `POST_NOTIFICATIONS` — send notifications
+Configured in the Mentra Developer Console (not at runtime): `MICROPHONE` (voice/audio), `CAMERA` (photos/streaming), `LOCATION` / `BACKGROUND_LOCATION` (GPS), `CALENDAR`, `READ_NOTIFICATIONS`, `POST_NOTIFICATIONS`.
 
 ### Things That Do NOT Exist in the SDK
 
-- `session.display` — does not exist
-- `session.screen` — does not exist
-- `session.audio.playUrl(url)` — the correct method is `session.audio.playAudio({ audioUrl })`
-- `session.camera.takePhoto()` — the correct method is `session.camera.requestPhoto()`
+- `session.display`, `session.screen` — do not exist
+- `session.audio.playUrl(url)` — use `session.audio.playAudio({ audioUrl })`
+- `session.camera.takePhoto()` — use `session.camera.requestPhoto()`
 
 ## Project Structure
 
 ```
 suhail/
 ├── src/
-│   ├── index.ts                        # Entry point — creates SuhailApp and calls app.start()
-│   ├── app.ts                          # SuhailApp class (extends AppServer) — session handling, event routing, listening mode, mini app API
+│   ├── index.ts                        # Entry point — creates SuhailApp, calls initialize() + start()
+│   ├── app.ts                          # SuhailApp class (extends AppServer) — session handling, event routing, listening mode, mini app API, relay mount
+│   ├── relay/                          # BLE-mobile HTTP relay (mounted at /api by app.ts)
+│   │   ├── routes.ts                   # /api/{intent,normalize,vision/*,faces/*,stt,tts,photo/*} endpoints
+│   │   └── auth.ts                     # HMAC-Bearer auth middleware (RELAY_SHARED_SECRET)
 │   ├── commands/
 │   │   ├── base-command.ts             # AbstractCommandHandler — shared try/catch, photo capture, error speech
 │   │   ├── command-router.ts           # LLM intent classification (OpenRouter) + keyword fallback
-│   │   ├── scene-summarize.ts          # "Describe my surroundings" -> photo -> face recognition + scene description in parallel -> prepend names -> speak
+│   │   ├── scene-summarize.ts          # "Describe surroundings" -> photo -> face recognition + scene description in parallel -> prepend names -> speak
 │   │   ├── ocr-read-text.ts            # "Read this text" -> photo -> vision LLM OCR -> speak (capped at OCR_MAX_CHARS=400 with "swipe to stop" hint)
 │   │   ├── face-recognize.ts           # "Who is this?" -> photo -> multi-face AWS Rekognition -> speak all names
 │   │   ├── face-enroll.ts              # "Enroll this person" -> photo -> ask name -> save (stateful, 2-step)
 │   │   ├── find-object.ts              # "Find my keys" -> photo -> object detection -> speak location
-│   │   ├── currency-recognize.ts       # "Count money" -> photo -> vision LLM -> count bills per denomination -> speak total
+│   │   ├── currency-recognize.ts       # "Count money" -> photo -> vision LLM -> count bills -> speak total
 │   │   ├── visual-qa.ts                # Any question -> photo + question -> vision LLM -> speak answer
 │   │   └── color-detect.ts             # "What color is this?" -> photo -> color analysis -> speak color
 │   ├── services/
-│   │   ├── ai-handler.ts               # AIHandler class — unified facade that routes to specific services
-│   │   ├── vision-service.ts           # OpenRouter/Gemini vision calls (scene, VQA, currency, object, color, OCR)
+│   │   ├── ai-handler.ts               # AIHandler facade — routes to specific services
+│   │   ├── vision-service.ts           # OpenRouter/Gemini vision (scene, VQA, currency, object, color, OCR)
 │   │   ├── ocr-service.ts              # OCR — delegates to vision-service.extractText()
 │   │   ├── face-service.ts             # AWS Rekognition (recognition + enrollment) + local file storage
 │   │   ├── tts-service.ts              # speak(), speakBilingual(), localize(), common messages
-│   │   ├── cue-service.ts              # Generates + plays short non-speech WAV chimes (listening/got-it/cancelled) — replaces slow TTS cues
-│   │   └── settings-store.ts           # Global settings store (speech speed, volume, voice preset, language)
+│   │   ├── cue-service.ts              # Short non-speech WAV chimes (listening/got-it/cancelled) — replaces slow TTS cues
+│   │   ├── settings-store.ts           # Global settings (speech speed, volume, voice preset, language)
+│   │   ├── elevenlabs-tts.ts           # Direct ElevenLabs TTS for relay /api/tts (voice presets; mp3/pcm/ulaw formats)
+│   │   ├── elevenlabs-stt.ts           # ElevenLabs Scribe STT for relay /api/stt (16kHz PCM -> WAV -> text)
+│   │   ├── photo-cache.ts              # In-memory token cache for the BLE photo-capture flow (20 max, 60s TTL)
+│   │   └── openrouter-status.ts        # Startup probe of OpenRouter /credits (validates key/quota, best-effort)
 │   ├── utils/
 │   │   ├── config.ts                   # Environment variables (all from process.env with defaults)
 │   │   ├── logger.ts                   # Logger class with tag-based [Tag] prefix logging
-│   │   ├── image-utils.ts              # capturePhoto(session) -> base64 string (1920x1080), cropFace() for multi-face, base64 helpers
-│   │   ├── transcription-filter.ts     # Validates transcriptions (rejects garbled/wrong-script text)
-│   │   ├── transcription-normalizer.ts # LLM-based script normalization (Arabic-script English → Latin)
-│   │   └── timeline.ts                 # Per-session latency Timeline (mark/dump) — instrumentation only, no behavior
+│   │   ├── image-utils.ts              # capturePhoto(session) -> base64 (1920x1080), cropFace() for multi-face, base64 helpers
+│   │   ├── transcription-filter.ts     # Validates transcriptions (rejects garbled/wrong-script); stripAnnotations()
+│   │   ├── transcription-normalizer.ts # LLM-based script normalization (Arabic-script English -> Latin)
+│   │   └── timeline.ts                 # Per-session latency Timeline (mark/dump) — instrumentation only
 │   └── types/
 │       └── index.ts                    # All shared interfaces and types
-├── data/
-│   ├── .gitkeep
-│   └── faces/
-│       └── metadata.json               # Face enrollment metadata (name → faceId mappings)
-├── models/                             # Face.js ML model weights (SSD MobileNet, landmark, recognition)
+├── data/faces/metadata.json            # Face enrollment metadata (name <-> faceId); enrollment photos saved alongside
+├── models/                             # Legacy Face.js weights (SSD MobileNet, landmark, recognition) — UNUSED; recognition uses AWS Rekognition
+├── mobile/                             # React Native / Expo BLE app (own CLAUDE.md, README) — talks to glasses over BLE + this server's relay
 ├── landing/                            # React + Vite landing page (separate app)
-├── public/
-│   └── index.html                      # Companion app — 4-tab SPA (Status, Activity, Contacts, Settings)
+├── public/index.html                   # Companion app — 4-tab SPA (Status, Activity, Contacts, Settings)
 ├── .env.example                        # Environment variable template
-├── .gitignore
-├── package.json
-├── tsconfig.json
-└── README.md
+├── package.json, tsconfig.json, README.md
 ```
 
 ## Architecture & Data Flow
 
-### Request Flow (Voice Command)
+### Cloud-app voice command (onSession path)
 
 ```
-User swipes forward -> listening mode activated (10s window)
-  -> User speaks -> Mentra glasses mic -> MentraOS STT -> onTranscriptionForLanguage(data)
-    -> check data.isFinal (skip partial transcriptions)
-    -> check confidence >= MIN_CONFIDENCE (reject low-confidence)
-    -> validate transcription (reject garbled/wrong-script via transcription-filter)
-    -> normalize script if needed (Arabic-script English → Latin via transcription-normalizer)
-    -> check pending face enrollment (intercept if waiting for name)
-    -> routeCommand(data.text) -> LLM intent classification (2s timeout) or keyword fallback
-    -> handlers[command].execute(session, params)
-      -> speakBilingual(session, messages.processing)  // "Processing..."
-      -> capturePhoto(session)                          // Camera -> Buffer -> base64
-      -> ai.someMethod(base64Image)                     // AI service call
-      -> speak(session, result)                         // Speak result to user
+Forward swipe -> listening mode (10s window) -> user speaks -> MentraOS STT -> onTranscriptionForLanguage(data)
+  -> check data.isFinal (skip partials)
+  -> check confidence >= MIN_CONFIDENCE
+  -> validate transcription (transcription-filter) -> normalize script if needed (transcription-normalizer)
+  -> check pending face enrollment (intercept if waiting for name)
+  -> routeCommand(text) -> LLM intent (2s timeout) or keyword fallback
+  -> handlers[command].execute(session, params)
+     -> speakBilingual(processing) -> capturePhoto(session) -> ai.someMethod(base64) -> speak(result)
 ```
 
-### Request Flow (Button Press)
+### Buttons & gestures (cloud app)
 
-Mentra Live has **2 physical buttons** ("left" and "right"/"camera") plus a swipe pad. Gesture/button mappings:
+- **Forward swipe** → activate listening mode (~10s window)
+- **Backward swipe** / **left long press** → repeat last response (any state)
+- **Left short press** → interrupt current operation + return to listening
+- **Right/camera button** → reserved (native camera hardware)
 
-- **Forward swipe** → Activate listening mode (~10s window for next voice command)
-- **Backward swipe** → Repeat last response
-- **Left short press** → Interrupt current operation + return to listening mode
-- **Left long press** → Repeat last response
-- **Right/camera button** → Reserved (triggers native camera hardware)
+### BLE-mobile relay path
 
-```
-User swipes forward on swipe pad -> onTouchEvent(event)
-  -> gesture_name="forward_swipe" -> activate listening mode
-  -> next transcription is processed as a command (no wake word needed)
-```
+The mobile app captures voice/photos over BLE itself, then calls the relay for AI: typically `POST /api/stt` (audio→text) → `/api/normalize` + `/api/intent` (text→command) → a `/api/vision/*` or `/api/faces/*` endpoint (image→result) → `/api/tts` (text→audio it plays through the glasses). See **Relay API**.
 
 ### Command Handler Pattern
 
-Most command handlers extend `AbstractCommandHandler` (from `base-command.ts`), which provides:
-- Automatic try/catch with error speech
-- Photo capture with 5-second timeout
-- Pre-capture photo fallback (uses pre-captured photo from listening mode if available, with 3s await timeout)
-- "Got it" / "حسناً" feedback is spoken by `app.ts` before the handler is called
-
-Subclasses only need to implement the `process(session, photo, params)` method:
+Most handlers extend `AbstractCommandHandler` (`base-command.ts`), which provides automatic try/catch + error speech, photo capture with a 5s timeout, and pre-capture fallback (uses the photo pre-captured during listening mode if available, 3s await). `app.ts` speaks "Got it" / "حسناً" **before** calling the handler. Subclasses implement only:
 
 ```typescript
-abstract class AbstractCommandHandler implements CommandHandler {
-  abstract process(session: AppSession, photo: string, params?: Record<string, string>): Promise<void>;
-}
+abstract process(session: AppSession, photo: string, params?: Record<string, string>): Promise<void>;
 ```
 
-The only exception is `face-enroll.ts`, which implements `CommandHandler` directly due to its stateful 2-step flow.
+Base-class flow: (1) app speaks "Got it"; (2) `capturePhoto()` (5s timeout, base64 or null); (3) if null → speak "Camera not available", return; (4) `process(...)`; (5) catch → speak "Sorry, I couldn't process that". The only exception is `face-enroll.ts`, which implements `CommandHandler` directly for its stateful 2-step flow.
 
-Standard handler flow (handled by `AbstractCommandHandler`):
-1. `app.ts` speaks "Got it" / "حسناً" before calling the handler
-2. Capture photo via `capturePhoto(session)` with 5-second timeout — uses pre-captured photo if available, returns base64 or null
-3. If null, speak "Camera not available" and return
-4. Call `process(session, photo, params)` — subclass logic
-5. Catch errors and speak "Sorry, I couldn't process that"
+### Face Enrollment (Stateful, 2-Step)
 
-### Face Enrollment (Special — Stateful, 2-Step)
-
-Face enrollment is the only stateful command. It works across two transcriptions:
-
-1. User says "enroll this person" → captures photo, stores in `pendingEnrollments` Map, asks "say the name"
-2. User says "Abdullah" → `app.ts` checks `hasPendingEnrollment(sessionId)`, passes name to complete enrollment
-3. Face is indexed into AWS Rekognition collection + photo saved to `data/faces/`
-
-The state machine lives in `FaceEnrollCommand.pendingEnrollments: Map<sessionId, base64Photo>`.
-
-**Enhanced safeguards:**
-- **TTS echo detection** — ignores the app's own speech (e.g., "please say the person's name") being picked up by the mic
-- **30-second timeout** — auto-cancels enrollment if no name is provided
-- **Concurrent enrollment lock** — prevents multiple enrollments from the same session
-- **Interrupt handling** — left button short press cancels the pending enrollment
+The only stateful command, spanning two transcriptions: (1) "enroll this person" → capture photo, store in `pendingEnrollments` Map, ask for the name; (2) "Abdullah" → `app.ts` checks `hasPendingEnrollment(sessionId)` and passes the name to complete enrollment → face indexed into AWS Rekognition + photo saved to `data/faces/`. State lives in `FaceEnrollCommand.pendingEnrollments: Map<sessionId, base64Photo>`. Safeguards: **TTS echo detection** (ignores the app's own prompt picked up by the mic), **30-second timeout** (auto-cancel), **concurrent enrollment lock**, **interrupt handling** (left short press cancels).
 
 ## Voice Command Routing (command-router.ts)
 
-The router uses a **hybrid approach**: LLM-based intent classification as the primary method, with keyword matching as a fallback. The user must first activate listening mode (forward swipe or left button), then speak their command within the ~10 second window.
+Hybrid: **LLM intent classification** primary, **keyword matching** fallback. The user must first activate listening mode (forward swipe / left button), then speak within ~10s.
 
-### Primary: LLM Intent Classification
-- Uses **OpenRouter API** with configurable model (default: `google/gemini-2.5-flash-lite`, via `CLASSIFICATION_MODEL` env var)
-- Classifies transcription into 9 intents (8 commands + "unknown")
-- **2-second timeout** — falls back to keyword matching if LLM is slow or unavailable
-- Extracts parameters (object name for find-object, question text for visual-qa)
-- Requires `OPENROUTER_API_KEY` — logs warning and falls back if missing
-
-### Fallback: Keyword Matching
-Used when LLM classification fails, times out, or API key is missing. Matches first word of transcription:
+- **Primary (LLM):** OpenRouter, model from `CLASSIFICATION_MODEL` (default `google/gemini-2.5-flash-lite`). Classifies into **9 intents** (8 commands + `unknown`), extracts params (object name for find-object, question for visual-qa). **2-second timeout** → falls back to keywords. Requires `OPENROUTER_API_KEY` (warns + falls back if missing).
+- **Fallback (keyword):** matches the first word of the transcription:
 
 | Keyword | Command | Arabic |
 |---------|---------|--------|
@@ -542,240 +325,163 @@ Used when LLM classification fails, times out, or API key is missing. Matches fi
 | "color" | color-detect | "لون" |
 | (anything else) | visual-qa | (fallback) |
 
-## Bilingual Support (Arabic/English)
+The relay reuses `routeCommand()` via `POST /api/intent`.
 
-The app supports Arabic and English via `BilingualMessage` objects:
+## Bilingual Support (Arabic/English)
 
 ```typescript
 interface BilingualMessage { ar: string; en: string; }
-
-// Usage
-await speakBilingual(session, { ar: "جاري المعالجة...", en: "Processing..." });
-// Selects language based on config.defaultLanguage (from DEFAULT_LANGUAGE env var, default: "ar")
+await speakBilingual(session, { ar: "جاري المعالجة...", en: "Processing..." });  // picks language from settings
 ```
 
-Common messages are defined in `src/services/tts-service.ts` as the `messages` object: welcome, processing, cameraError, generalError, noResult, repeatNoHistory, listening, received, cancelled, didntCatch, listeningTimeout, unknownCommand, permissionError.
+Common messages live in `tts-service.ts` as the `messages` object: welcome, processing, cameraError, generalError, noResult, repeatNoHistory, listening, received, cancelled, didntCatch, listeningTimeout, unknownCommand, permissionError.
 
 ## Services Layer
 
-### AI Handler (ai-handler.ts)
-Facade class that routes to specific services. All command handlers use this instead of calling services directly.
+All command handlers go through the **AIHandler** facade (`ai-handler.ts`) instead of calling services directly. Methods: `describeScene()`, `readText()`, `recognizeFace()`, `recognizeAllFaces()`, `enrollFace()`, `listFaces()`, `deleteFace()`, `renameFace()`, `findObject()`, `recognizeCurrency()`, `answerVisualQuestion()`, `detectColor()`, `loadPersistedFaces()`.
 
-Methods: `describeScene()`, `readText()`, `recognizeFace()`, `recognizeAllFaces()`, `enrollFace()`, `listFaces()`, `deleteFace()`, `renameFace()`, `findObject()`, `recognizeCurrency()`, `answerVisualQuestion()`, `detectColor()`, `loadPersistedFaces()`
+### Vision Service (vision-service.ts)
+OpenRouter, model from `VISION_MODEL` (default `google/gemini-2.5-flash-lite`). All functions delegate to a shared `callVisionAPI` helper with explicit `max_tokens`. Tasks: `describeScene` (1-2 short sentences for blind users; scene-summarize runs this in parallel with face recognition and prepends recognized names), `answerVisualQuestion` (VQA), `recognizeCurrency`, `detectObject` (location, e.g. "to your right, on the table"), `detectColor` (name + hex), `extractText` (OCR). Bilingual prompts (ar/en); images sent as base64 data URI.
 
-### Vision Service (vision-service.ts) — WORKING
-Uses **OpenRouter API** with configurable model (default: `google/gemini-2.5-flash-lite`, via `VISION_MODEL` env var). All vision functions delegate to a shared `callVisionAPI` helper (extracted fetch boilerplate) with explicit `max_tokens` set. Handles 6 vision tasks:
-- `describeScene(base64)` — scene description for blind users (1-2 short sentences). Scene-summarize runs this in parallel with face recognition and prepends recognized names to the result.
-- `answerVisualQuestion(base64, question)` — VQA
-- `recognizeCurrency(base64)` — money denomination
-- `detectObject(base64, targetName)` — object location (e.g., "to your right, on the table")
-- `detectColor(base64)` — dominant color name + hex
-- `extractText(base64)` — OCR text extraction via vision LLM
+### OCR Service (ocr-service.ts)
+`extractText(base64)` — delegates to `visionService.extractText()` (vision-LLM OCR).
 
-All calls include bilingual prompt support (ar/en based on config). Images sent as base64 data URI.
+### Face Service (face-service.ts)
+AWS Rekognition + local file storage. `recognizeFace` (single best match), `recognizeAllFaces` (`DetectFacesCommand` → crop each with `sharp` → per-face `SearchFacesByImageCommand`; returns `MultiFaceResult { faces, totalDetected }`; optimizes single-face, caps at 10, skips boxes <3% of image, parallel via `Promise.allSettled()`), `enrollFace`, `listFaces`, `deleteFace`, `renameFace`, `loadPersistedFaces` (init/verify collection on startup), `getFacePhotoPath`. Names are hex-encoded for Rekognition's `ExternalImageId`; `data/faces/metadata.json` holds the human-readable mappings. AWS credential errors are handled gracefully (warn + continue).
 
-### OCR Service (ocr-service.ts) — WORKING
-- `extractText(base64)` — delegates to `visionService.extractText()` (vision LLM-based OCR)
+### TTS Service (tts-service.ts)
+`speak(session, text, sessionId?)` (wraps `session.audio.speak()` + tracks last response per session), `speakBilingual(...)`, `getLastResponse(sessionId)` / `clearLastResponse(sessionId)` (repeat support), `localize(message)`. Respects global settings (speed, volume, preset, language). Uses `trackId: 2`.
 
-### Face Service (face-service.ts) — WORKING
-Uses **AWS Rekognition** with local file storage for metadata and photos:
-- `recognizeFace(base64)` — search Rekognition collection, return single best match (used by face enrollment)
-- `recognizeAllFaces(base64)` — detect ALL faces via `DetectFacesCommand`, crop each with `sharp`, search individually via `SearchFacesByImageCommand`. Returns `MultiFaceResult { faces: FaceMatch[], totalDetected }`. Optimizes single-face case (no cropping). Caps at 10 faces, skips tiny bounding boxes (<3% of image), runs per-face searches in parallel via `Promise.allSettled()`
-- `enrollFace(name, base64)` — index face into collection + save photo to `data/faces/`
-- `listFaces()` — enumerate all enrolled faces with metadata
-- `deleteFace(faceId)` — remove from Rekognition + local storage
-- `renameFace(faceId, newName)` — update local metadata
-- `loadPersistedFaces()` — initialize/verify Rekognition collection on startup
-- `getFacePhotoPath(faceId)` — get path to stored enrollment photo
+### Settings Store (settings-store.ts)
+Voice/language prefs backed by `simpleStorage`. `getSettings()` (defensive copy), `updateSettings(partial)` (validate + clamp + persist with `flush()`), `initSettingsFromStorage(session)`, `clearSettingsSession()`. Settings: `speechSpeed` (0.5–2.0), `volume` (0.0–1.0), `voicePreset` ("default"|"male"|"female"), `language` ("ar"|"en"). Defaults from `DEFAULT_LANGUAGE`; others hardcoded. Survives restarts.
 
-Face names are hex-encoded for Rekognition's `ExternalImageId` field. Local `data/faces/metadata.json` stores the human-readable name mappings. Handles AWS credential errors gracefully (logs warning, continues).
-
-### TTS Service (tts-service.ts) — WORKING
-- `speak(session, text, sessionId?)` — wraps `session.audio.speak()` with logging + tracks last response per session
-- `speakBilingual(session, message, sessionId?)` — selects language from settings store
-- `getLastResponse(sessionId)` — retrieve last spoken text for repeat functionality
-- `clearLastResponse(sessionId)` — cleanup on session end
-- `localize(message)` — returns string for current language
-- TTS now respects global settings: speech speed, volume, voice preset, and language
-- TTS uses `trackId: 2` for audio track mixing — enables background audio on track 1 without blocking speech
-
-### Settings Store (settings-store.ts) — WORKING
-Persistent settings store for voice and language preferences, backed by `simpleStorage`:
-- `getSettings()` — returns current settings (defensive copy)
-- `updateSettings(partial)` — validates, applies, and persists to `simpleStorage` with `flush()`
-- `initSettingsFromStorage(session)` — loads persisted settings on session start
-- `clearSettingsSession()` — clears session reference on session end
-- Settings: `speechSpeed` (0.5–2.0), `volume` (0.0–1.0), `voicePreset` ("default" | "male" | "female"), `language` ("ar" | "en")
-- All values are validated and clamped to valid ranges
-- Defaults read from `DEFAULT_LANGUAGE` env var; all other defaults are hardcoded
-- Settings persist across server restarts via `session.simpleStorage` + `flush()`
+### Relay Services (BLE mobile backend — server-only, not used by the cloud-app path)
+- **elevenlabs-tts.ts** — `synthesize()` calls ElevenLabs TTS directly for `/api/tts`. Voice presets (`male`=Adam, `female`=Rachel) mirror `tts-service.ts`; mp3/pcm/ulaw output formats (`isValidFormat()`, `contentTypeFor()`). Returns audio bytes.
+- **elevenlabs-stt.ts** — `transcribe()` runs ElevenLabs **Scribe** (`scribe_v1`) for `/api/stt`. Takes raw 16kHz/16-bit/mono s16le PCM from the glasses mic and prepends a 44-byte WAV header. Returns `ScribeResult { text, languageCode?, confidence? }`.
+- **photo-cache.ts** — in-memory token store for the two-step BLE photo flow: `mintToken()` → glasses upload → `storeBytes()` → `getBytes()`/`waitForBytes()` (one-shot consume). Caps: 20 in-flight, 60s TTL, 30s sweep.
+- **openrouter-status.ts** — `probeOpenRouterStatus()` checks OpenRouter `/credits` at startup to validate the key/quota (free call, never throws). Logs loudly if the key is missing/over-quota so silent fallbacks aren't a surprise.
 
 ## Environment Variables
 
-Defined in `src/utils/config.ts`, loaded from `.env` (local) or Railway dashboard (production):
+Defined in `src/utils/config.ts`, loaded from `.env` (local) or Railway (production). Keep `.env.example` in sync.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `PACKAGE_NAME` | MentraOS app identifier | `com.suhail.assistant` |
 | `MENTRAOS_API_KEY` | MentraOS authentication | (empty) |
 | `PORT` | Server port | `3000` |
-| `OPENROUTER_API_KEY` | OpenRouter API — vision + LLM intent classification | (empty) |
+| `OPENROUTER_API_KEY` | OpenRouter — vision + intent classification + normalization | (empty) |
 | `AWS_REGION` | AWS region for Rekognition | `us-east-1` |
 | `AWS_REKOGNITION_COLLECTION_ID` | Face collection ID in Rekognition | `suhail-faces` |
-| `AWS_ACCESS_KEY_ID` | AWS credentials (used implicitly by AWS SDK) | (empty) |
-| `AWS_SECRET_ACCESS_KEY` | AWS credentials (used implicitly by AWS SDK) | (empty) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS credentials (used implicitly by the AWS SDK) | (empty) |
 | `DEFAULT_LANGUAGE` | Response language ("ar" or "en") | `ar` |
-| `CONFIDENCE_THRESHOLD` | Min confidence for face recognition results | `0.5` |
+| `CONFIDENCE_THRESHOLD` | Min confidence for face recognition (≤1 = ratio, >1 = percent) | `0.5` |
 | `MIN_CONFIDENCE` | Min confidence for transcription filtering | `0.55` |
 | `VISION_MODEL` | OpenRouter model for vision tasks | `google/gemini-2.5-flash-lite` |
-| `CLASSIFICATION_MODEL` | OpenRouter model for intent classification | `google/gemini-2.5-flash-lite` |
-| `PUBLIC_BASE_URL` | Publicly reachable base URL (no trailing slash). When set, short generated chimes replace the "Listening" / "Got it" / "Cancelled" TTS cues. Dev: ngrok URL. Prod: Railway URL. | (empty — falls back to TTS) |
+| `CLASSIFICATION_MODEL` | OpenRouter model for intent classification + normalization | `google/gemini-2.5-flash-lite` |
+| `PUBLIC_BASE_URL` | Public base URL (no trailing slash). When set, short chimes replace the "Listening"/"Got it"/"Cancelled" TTS cues. Dev: ngrok URL. Prod: Railway URL. | (empty — falls back to TTS) |
+| `RELAY_SHARED_SECRET` | Shared secret for the BLE app's HMAC-Bearer auth on relay endpoints. Empty → relay is OPEN (dev mode, startup warning). | (empty) |
+| `ELEVENLABS_API_KEY` | ElevenLabs key for relay `/api/stt` (Scribe) + `/api/tts`. Server-only, never shipped to mobile. Empty → those endpoints return 503. | (empty) |
+| `ELEVENLABS_DEFAULT_VOICE_ID` | Default voice for `/api/tts` when no override is passed | `21m00Tcm4TlvDq8ikWAM` (Rachel) |
+| `ELEVENLABS_MODEL` | ElevenLabs TTS model for the relay | `eleven_flash_v2_5` |
 
 ## Current State of the Project
 
-All core features are **fully implemented** with real AI backends. The app is production-ready.
-
-### What's Done
-- Full MentraOS SDK integration (AppServer, sessions, events, camera, audio)
-- **LLM-based command routing** with keyword fallback (Arabic + English)
-- **Listening mode** with state machine (idle → active → processing), timeouts, and echo guard
-- Button press + swipe gesture handling with interrupt support
-- All 8 command handlers with real AI backends
-- **Vision services** — OpenRouter/Gemini for scene description, VQA, currency, object detection, color, OCR
-- **Face recognition** — AWS Rekognition with persistent storage (collection + local files). Supports **multi-face detection** (DetectFaces + per-face crop via `sharp` + SearchFacesByImage). Scene summarization integrates face recognition to mention known people by name
-- **Face enrollment** — stateful 2-step flow with TTS echo detection, timeouts, and concurrency locks
-- Bilingual TTS (Arabic/English) with repeat-last-response support
-- Transcription filtering (garbled text, wrong script, low confidence)
-- Transcription normalization (Arabic-script English → Latin via LLM)
-- **Companion app** — 4-tab SPA (Status, Activity, Contacts, Settings) at `/webview`
-- **Settings persistence** — voice speed, volume, voice preset, language persisted via `simpleStorage` + `flush()` (survives restarts)
-- **Device state tracking** — battery, case battery, charging, WiFi status via reactive `device.state` observables, exposed via `/api/status`
-- **Permission error handling** — `onPermissionError()` speaks a warning when camera/mic permissions are missing
-- **Audio track mixing** — TTS uses dedicated `trackId: 2`, leaving track 1 available for background audio
-- **High-resolution photos** — all camera captures use `"large"` (1920x1080) with `compress: "medium"` to cut upload payload while keeping enough detail for vision/OCR
-- **Structured activity log** — enriched with type, command, result fields
-- **Face enrollment timestamps** — `enrolledAt` field on face metadata
-- **Landing page** — React + Vite app in `landing/`
-- Logger, config, image utils
+All core features are **fully implemented** with real AI backends — production-ready. This covers: full MentraOS SDK integration (AppServer/sessions/events/camera/audio); the BLE-mobile relay (`/api/*`); LLM command routing with keyword fallback (Arabic + English); listening-mode state machine (idle→active→processing) with timeouts, grace period, and echo guard; button/swipe handling with interrupt support; all 8 command handlers; vision services (scene/VQA/currency/object/color/OCR via OpenRouter/Gemini); face recognition with multi-face detection (`DetectFaces` + per-face `sharp` crop + `SearchFacesByImage`) integrated into scene summaries to name known people; stateful 2-step face enrollment (TTS echo detection, timeouts, concurrency locks, `enrolledAt` timestamps); bilingual TTS with repeat-last-response; ElevenLabs Scribe STT + TTS on the relay; transcription filtering (garbled/wrong-script/low-confidence) + normalization (Arabic-script English → Latin via LLM); high-res photos (`"large"` 1920x1080 + `compress: "medium"`); companion 4-tab SPA at `/webview`; settings persistence via `simpleStorage` + `flush()` (survives restarts); device-state tracking via reactive `device.state` observables (→ `/api/status`); `onPermissionError()` handling; audio track mixing (`trackId: 2`); structured activity log (type/command/result); a React + Vite landing page in `landing/`; plus logger, config, and image utils.
 
 ### SDK Features Not Yet Used (Available for Future Use)
-- `session.led` — LED feedback (e.g., blink green when processing, red on error)
-- `session.location` — GPS-aware features (e.g., "where am I?")
-- `session.capabilities` — Runtime hardware detection
-- `session.events.onHeadPosition()` — Trigger actions on head up/down
-- `session.events.onPhoneNotifications()` — Read phone notifications aloud
-- Video streaming via `session.camera.startManagedStream()`
+`session.led` (LED feedback — e.g. blink green processing, red on error), `session.location` (GPS features like "where am I?"), `session.capabilities` (runtime hardware detection), `session.events.onHeadPosition()` (head up/down triggers), `session.events.onPhoneNotifications()` (read aloud), and video streaming via `session.camera.startManagedStream()`.
 
 ## Listening Mode (app.ts)
 
-The app uses a **listening state machine** to prevent accidental command triggers from background conversation:
+A state machine prevents accidental triggers from background conversation:
 
-### States
-- **idle** — Not listening. Transcriptions are ignored.
-- **active** — Listening window open (~10 seconds). Next valid transcription is processed as a command.
-- **processing** — Command received, executing handler. Returns to idle when done.
-
-### Activation
-- **Forward swipe** or **left short press** → transitions from idle to active
-- Plays a short generated chime (`/cues/listening.wav`) when `PUBLIC_BASE_URL` is set, otherwise falls back to speaking "تفضل" / "Listening" via TTS. Chimes save ~2.5–3s per cue vs server-generated TTS.
-- Pre-captures a photo in parallel with a 3-second await timeout (optimization for faster command execution)
-
-### Safeguards
-- **10-second timeout** (`LISTENING_TIMEOUT_MS`) — auto-returns to idle if no command received
-- **1-second grace period** (`LISTENING_GRACE_MS`) — ignores stale transcriptions immediately after activation (leftover audio from before the swipe)
-- **TTS echo guard** (`TTS_ECHO_BUFFER_MS = 1500ms`) — marks session as "speaking" during TTS output + 1.5s buffer, so the mic doesn't pick up the app's own speech as a command
-- **Confidence filtering** — rejects transcriptions below `MIN_CONFIDENCE` threshold
-- **Script validation** — via `transcription-filter.ts`, rejects garbled or wrong-script text
-- **Script normalization** — via `transcription-normalizer.ts`, converts Arabic-script English to Latin using LLM
-
-### Interrupts
-- Left short press during **active** or **processing** → cancels current operation, returns to listening
-- **Forward swipe during processing** → silences the in-flight result TTS (`session.audio.stopAudio(2)`), aborts the handler, and immediately re-enters listening mode (no "Cancelled" cue — the user clearly wants to issue a new command). Useful for cutting off long OCR results or scene descriptions.
-- Forward swipe during **active** → cancels with the "Cancelled" cue (chime if available, TTS fallback).
-- Backward swipe or left long press → repeats last response (works from any state)
+- **States:** `idle` (transcriptions ignored), `active` (~10s window — next valid transcription is a command), `processing` (handler running → back to idle when done).
+- **Activation:** forward swipe / left short press → active. Plays the `/cues/listening.wav` chime when `PUBLIC_BASE_URL` is set, else speaks "تفضل"/"Listening" (chimes save ~2.5–3s). Pre-captures a photo in parallel (3s await).
+- **Safeguards:** `LISTENING_TIMEOUT_MS` (10s auto-return to idle); `LISTENING_GRACE_MS` (1s — ignore stale audio right after activation); `TTS_ECHO_BUFFER_MS = 1500ms` (marks session "speaking" during TTS + buffer so the mic doesn't catch the app's own speech); confidence filtering (`MIN_CONFIDENCE`); script validation (`transcription-filter.ts`); script normalization (`transcription-normalizer.ts`).
+- **Interrupts:** left short press during active/processing → cancel + return to listening. **Forward swipe during processing** → silences in-flight TTS (`session.audio.stopAudio(2)`), aborts the handler, re-enters listening (no "Cancelled" cue — user clearly wants a new command; good for cutting off long OCR/scene results). Forward swipe during active → cancel with "Cancelled" cue. Backward swipe / left long press → repeat last response (any state).
 
 ## Mini App API (app.ts)
 
-The app serves REST endpoints via Express (from `AppServer.getExpressApp()`), used by the companion app at `/webview`:
+Express endpoints (from `AppServer.getExpressApp()`) for the companion app at `/webview`:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/status` | Online status, session count, uptime, battery, charging, case battery, case charging, WiFi connected |
-| `GET` | `/api/activity` | Rolling activity log (last 20 events, structured with type/command/result) |
-| `GET` | `/api/faces` | List all enrolled faces (`{ faces, count }` — each face has name, faceId, hasPhoto, enrolledAt) |
-| `GET` | `/api/faces/:faceId/photo` | Download enrollment photo for a face |
+| `GET` | `/api/status` | Online status, session count, uptime, battery, charging, case battery/charging, WiFi |
+| `GET` | `/api/activity` | Rolling activity log (last 20, structured type/command/result) |
+| `GET` | `/api/faces` | List enrolled faces (`{ faces, count }` — name, faceId, hasPhoto, enrolledAt) |
+| `GET` | `/api/faces/:faceId/photo` | Download enrollment photo |
 | `DELETE` | `/api/faces/:faceId` | Delete an enrolled face |
-| `PUT` | `/api/faces/:faceId` | Rename an enrolled face (body: `{ name }`) |
-| `GET` | `/api/settings` | Get current global settings (speechSpeed, volume, voicePreset, language) |
-| `PUT` | `/api/settings` | Update global settings (partial update, validated) |
+| `PUT` | `/api/faces/:faceId` | Rename an enrolled face (body `{ name }`) |
+| `GET` / `PUT` | `/api/settings` | Get / update global settings (partial, validated) |
 | `GET` | `/webview` | Serve the companion app HTML |
 
-The companion app is a 4-tab SPA in `public/index.html` with:
-- **Home** — connection status, battery level, voice commands reference
-- **Contacts** — search, view, rename, delete enrolled faces with photo cards
-- **Activity** — color-coded rolling log of commands and system events
-- **Settings** — speech speed slider, volume slider, voice preset, language toggle (Arabic/English with RTL)
+The companion SPA (`public/index.html`) has Home (status/battery/commands), Contacts (search/rename/delete faces with photos), Activity (color-coded log), and Settings (speed/volume sliders, voice preset, language toggle with RTL).
+
+> **Note:** these `/api/*` webview routes and the **Relay API** `/api/*` routes coexist on the same Express app. Relay routes use a dedicated 10MB-body router mounted last with HMAC auth; the small webview routes above are registered separately. Face GET/PUT/DELETE stay on this webview path — only face **POST** (recognize/enroll) lives on the relay.
+
+## Relay API (BLE Mobile Backend)
+
+`src/relay/routes.ts` (mounted at `/api` by `app.ts` via `registerRelayRoutes`) is the HTTP backend the **BLE mobile app** calls for AI work. All endpoints are **POST** under `/api` and require HMAC-Bearer auth (`src/relay/auth.ts`) — **except** the glasses photo-upload webhook (token-authed).
+
+**Auth.** Headers `X-Device-Id: <uuid>` + `Authorization: Bearer <token>`, where `token = hex(HMAC-SHA256(deviceId, RELAY_SHARED_SECRET))`, compared in constant time. When `RELAY_SHARED_SECRET` is empty, auth is skipped (dev mode, one-time startup warning).
+
+**Image input.** Vision/face endpoints accept either `{ image: <base64> }` (direct) or `{ photoToken: <hex> }` (BLE flow). The relay router's body limit is 10MB.
+
+| Endpoint (POST) | Body | Returns |
+|-----------------|------|---------|
+| `/api/intent` | `{ text, language? }` | `{ command, params?, rawText }` (Scribe annotations stripped first) |
+| `/api/normalize` | `{ text, language }` | `{ text }` (Arabic-script English → Latin; no-op when not needed) |
+| `/api/vision/scene` | `{ image\|photoToken, language? }` | `{ description, confidence }` |
+| `/api/vision/ocr` | `{ image\|photoToken, context?, language? }` | `{ text }` |
+| `/api/vision/currency` | `{ image\|photoToken }` | `CurrencyResult` |
+| `/api/vision/object` | `{ image\|photoToken, target, language? }` | `{ found, location, confidence }` |
+| `/api/vision/color` | `{ image\|photoToken, language? }` | `{ colorName, hex }` |
+| `/api/vision/vqa` | `{ image\|photoToken, question, language? }` | `{ description, confidence }` |
+| `/api/faces/recognize` | `{ image\|photoToken }` | `FaceRecognitionResult` |
+| `/api/faces/recognize-all` | `{ image\|photoToken }` | `MultiFaceResult` |
+| `/api/faces/enroll` | `{ image\|photoToken, name }` | `{ faceId, name, enrolledAt }` |
+| `/api/stt` | `{ audio (base64 s16le 16kHz mono PCM), language? }` | `ScribeResult` (503 if no `ELEVENLABS_API_KEY`; rejects <1KB PCM) |
+| `/api/tts` | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes + `Content-Type`/`X-Audio-Format` headers (≤5000 chars; 503 if no key) |
+
+**Photo capture flow (BLE):** `POST /api/photo/upload-url` mints a one-shot token + `uploadUrl` (60s TTL) → mobile tells the glasses to upload → glasses `POST /api/photo/upload/:token` (multipart `photo`, **unauthenticated** — the URL token is the auth) → mobile long-polls `GET /api/photo/wait/:token` (≤20s) → mobile calls a vision/face endpoint with `{ photoToken }`. The server-side wait exists because the iOS BLE SDK never emits a photo-success event.
 
 ## Rules for Contributing
 
-1. **Audio only** — never reference displays, screens, or visual UI. All output goes through `session.audio.speak()`
-2. **Always give feedback** — speak "Processing..." before any long operation, then speak the result or error
-3. **Always handle camera failure** — `capturePhoto()` can return null, speak "Camera not available"
-4. **Always catch errors** — every handler wraps its logic in try/catch and speaks a friendly error
-5. **Extend AbstractCommandHandler** — implement `process(session, photo, params)` for standard commands. Use `CommandHandler` directly only for non-standard flows (e.g., stateful multi-step commands)
-6. **Use AIHandler facade** — don't call services directly from command handlers
-7. **Use speakBilingual for common messages** — define `{ ar: "...", en: "..." }` pairs
-8. **Use the Logger** — `new Logger("TagName")` for consistent `[TagName]` prefixed logging
-9. **Use capturePhoto()** from `utils/image-utils.ts` — it handles the SDK's `requestPhoto()`, Buffer->base64 conversion, and error handling
-10. **Keep it simple** — this is a graduation project. No over-engineering.
-11. **Keep `.env.example` up to date** — whenever you add, remove, or rename an environment variable in `config.ts` or anywhere in the codebase, update `.env.example` to reflect the change. This file is how teammates know which env vars they need.
-12. **Keep documentation in sync** — whenever you add, remove, or change features, APIs, services, files, or project structure, update **both** `CLAUDE.md` and `README.md` to reflect the changes. These files must always match the current state of the code. Outdated docs are worse than no docs.
+1. **Audio only** — never reference displays/screens. All cloud-app output goes through `session.audio.speak()`.
+2. **Always give feedback** — speak "Processing..." before any long op, then the result or error.
+3. **Always handle camera failure** — `capturePhoto()` can return null; speak "Camera not available".
+4. **Always catch errors** — every handler wraps logic in try/catch and speaks a friendly error.
+5. **Extend AbstractCommandHandler** — implement `process(session, photo, params)`. Use `CommandHandler` directly only for non-standard flows (e.g. stateful multi-step like face enrollment).
+6. **Use the AIHandler facade** — don't call services directly from command handlers.
+7. **Use speakBilingual for common messages** — define `{ ar, en }` pairs.
+8. **Use the Logger** — `new Logger("TagName")` for `[TagName]`-prefixed logs.
+9. **Use capturePhoto()** from `utils/image-utils.ts` (handles `requestPhoto()`, Buffer→base64, errors).
+10. **Keep it simple** — this is a graduation project; no over-engineering.
+11. **Keep `.env.example` up to date** — whenever you add/remove/rename an env var in `config.ts`, update `.env.example`.
+12. **Keep docs in sync** — when you change features, APIs, services, files, or structure, update **both** `CLAUDE.md` and `README.md` (and `mobile/CLAUDE.md` for mobile/relay changes). Outdated docs are worse than none.
 
 ## Version Control Etiquette
 
-### Branch Strategy
-- **`main`** — production branch, auto-deploys to Railway. Always stable.
-- **`development`** — integration branch. All feature work merges here first.
-- **`feature/*`** — short-lived feature branches off `development`.
+**Branches:** `main` (production, auto-deploys to Railway — always stable), `development` (integration), `feature/*` (short-lived, off `development`).
 
-### Workflow
-1. Create a feature branch off `development`: `git checkout -b feature/my-feature development`
-2. Make commits with clear, descriptive messages following conventional commits (e.g., `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`)
-3. Open a PR from your feature branch → `development`
-4. After review and merge into `development`, test thoroughly
-5. When `development` is stable and ready for release, open a PR from `development` → `main`
-6. After merging to `main`, create a GitHub release with a version tag (e.g., `v1.2.0`)
-7. Fast-forward `development` to match `main` after the merge: `git checkout development && git merge main --ff-only`
+**Workflow:** branch off `development` → conventional commits → PR into `development` → test → when stable, PR `development` → `main` → tag a GitHub release → fast-forward `development` to match `main` (`git checkout development && git merge main --ff-only`).
 
-### Commit Messages
-Use **conventional commit** format:
-- `feat: add new command for X` — new feature
-- `fix: handle null camera response` — bug fix
-- `docs: update CLAUDE.md with new API endpoints` — documentation only
-- `chore: add .superpowers/ to gitignore` — maintenance, no code change
-- `refactor: extract photo capture into utility` — code restructure, no behavior change
+**Commit messages** (conventional): `feat:` (feature), `fix:` (bug), `docs:`, `chore:` (maintenance), `refactor:` (no behavior change).
 
-### Versioning (Semantic Versioning)
-- **Major** (`v2.0.0`) — breaking changes, major rewrites
-- **Minor** (`v1.1.0`) — new features, backward-compatible
-- **Patch** (`v1.0.1`) — bug fixes, small improvements
+**Versioning** (semver): Major (`v2.0.0`) = breaking; Minor (`v1.1.0`) = new backward-compatible features; Patch (`v1.0.1`) = bug fixes.
 
-### Rules
-- Never force-push to `main` or `development`
-- Never commit directly to `main` — always go through a PR
-- Always ensure `development` and `main` are in sync after a release (fast-forward merge)
-- Run `bun run typecheck` before opening a PR
-- Keep PRs focused — one feature or fix per PR, not kitchen-sink merges
-- Delete feature branches after they are merged
+**Rules:** never force-push or commit directly to `main`/`development` (always PR); keep `development` and `main` in sync after a release; run `bun run typecheck` before opening a PR; keep PRs focused (one feature/fix); delete merged feature branches.
 
 ## Adding a New Command
 
-1. Create `src/commands/my-command.ts` extending `AbstractCommandHandler` (from `base-command.ts`). You only need to implement the `process(session, photo, params)` method — the base class handles try/catch, photo capture (with 5s timeout), pre-capture fallback, and error speech. Use `CommandHandler` directly only if your command has a non-standard flow (like face enrollment's 2-step state machine)
-2. Add the command type to `CommandType` union in `src/types/index.ts`
-3. Add keyword route to `routes[]` array in `src/commands/command-router.ts`
-4. Register the handler in `this.handlers` map in `src/app.ts` constructor
-5. Optionally add a button mapping in `handleButtonPress()` in `src/app.ts`
-6. If it needs a new AI service, add it to `src/services/` and expose through `AIHandler`
+1. Create `src/commands/my-command.ts` extending `AbstractCommandHandler` — implement only `process(session, photo, params)` (base class handles try/catch, 5s photo capture, pre-capture fallback, error speech). Use `CommandHandler` directly only for non-standard flows.
+2. Add the type to the `CommandType` union in `src/types/index.ts`.
+3. Add a keyword route to `commandMap[]` in `command-router.ts` (and the intent name to the LLM classifier list).
+4. Register the handler in `this.handlers` in the `app.ts` constructor.
+5. Optionally add a button mapping in `handleButtonPress()` in `app.ts`.
+6. If it needs a new AI service, add it to `src/services/` and expose it through `AIHandler`.
+7. To expose it to the mobile app, add a relay endpoint in `src/relay/routes.ts`.
 
 ## Commands Quick Reference
 
@@ -784,5 +490,6 @@ bun install           # Install dependencies
 bun run start         # Start server
 bun run dev           # Start with --watch (auto-restart)
 bun run typecheck     # TypeScript type checking
+bun run build         # Build the landing page (landing/)
 ngrok http 3000       # Expose local server (needed for Mentra connection in local dev)
 ```

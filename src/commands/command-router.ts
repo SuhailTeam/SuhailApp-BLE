@@ -4,8 +4,13 @@ import type { CommandType, IntentType, ClassificationResult, RouteResult } from 
 
 const logger = new Logger("CommandRouter");
 
-/** Timeout for the LLM classification call (ms) */
-const CLASSIFY_TIMEOUT_MS = 2_000;
+/** Timeout for the LLM classification call (ms).
+ *  Bumped 2000 → 2500 after PR #7, then 2500 → 3000 after PR #12+#13: even
+ *  with the larger budget, occasional cold-start trials still hit the limit
+ *  ("LLM classification aborted/timed out" → keyword fallback fired cleanly,
+ *  which works, but the LLM result would be more accurate). 3000ms covers
+ *  the observed 2.7-2.9s cold-start range with a small safety margin. */
+const CLASSIFY_TIMEOUT_MS = 3_000;
 
 /** Maps LLM intent names to CommandType values */
 const intentToCommand: Record<Exclude<IntentType, "unknown">, CommandType> = {
