@@ -244,14 +244,26 @@
       border-radius: 10px;
     }
 
+    .contacts-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    @media (min-width: 480px) {
+      .contacts-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
     .contact-card {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       background: var(--surface);
       border-radius: var(--radius);
-      padding: 12px;
-      margin-bottom: 8px;
+      padding: 14px 10px;
       cursor: pointer;
       transition: background 0.15s;
     }
@@ -261,50 +273,46 @@
     }
 
     .contact-thumb {
-      width: 52px;
-      height: 52px;
-      border-radius: 12px;
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 14px;
       object-fit: cover;
       border: 2px solid var(--accent);
-      flex-shrink: 0;
     }
 
     .letter-avatar {
-      width: 52px;
-      height: 52px;
-      border-radius: 12px;
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
+      font-size: 44px;
       font-weight: 700;
       color: #fff;
       background: linear-gradient(135deg, #06B6D4, #a855f7);
-      flex-shrink: 0;
       border: 2px solid var(--accent);
     }
 
     .contact-info {
-      flex: 1;
+      width: 100%;
       min-width: 0;
+      text-align: center;
     }
 
     .contact-name {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 600;
       color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .contact-date {
       font-size: 10px;
       color: var(--text-muted);
       margin-top: 2px;
-    }
-
-    .contact-chevron {
-      color: var(--text-muted);
-      font-size: 18px;
-      flex-shrink: 0;
     }
 
     /* ─── Empty / Error States ─── */
@@ -1151,7 +1159,7 @@
       return;
     }
 
-    list.innerHTML = filtered.map(f => {
+    const cards = filtered.map(f => {
       const thumb = f.hasPhoto
         ? `<img class="contact-thumb" src="/api/faces/${f.faceId}/photo" alt="${esc(f.name)}" />`
         : `<div class="letter-avatar">${f.name.charAt(0).toUpperCase()}</div>`;
@@ -1162,9 +1170,9 @@
             <div class="contact-name">${esc(f.name)}</div>
             <div class="contact-date">${relativeTime(f.enrolledAt)}</div>
           </div>
-          <span class="contact-chevron">›</span>
         </div>`;
     }).join('');
+    list.innerHTML = `<div class="contacts-grid">${cards}</div>`;
   }
 
   document.getElementById('search-input').addEventListener('input', renderContacts);
