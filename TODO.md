@@ -2,12 +2,12 @@
 
 > Handoff for the next Claude session working on the BLE rewrite of Suhail.
 
-## Current state (as of 2026-05-26, post-PR #16)
+## Current state (as of 2026-05-29, post-v1.1.1)
 
 - **8 of 8 voice commands shipped + hardware-verified** on iPhone 17 Pro Max / iOS 26.5
 - **Phase C complete** — feature parity with the cloud app's command surface
-- 16 PRs merged into `development` (see `gh pr list --state merged --limit 16`)
-- Cloud Suhail on `main` is unchanged and still works
+- **Released v1.0.0 → v1.1.1** on `main`. Shipped since the PR #16 handoff: graceful disconnect handling (#21), pre-bundled static-phrase audio (#22), Contacts CRUD (#23) + grid layout (#24), STT 413 body-limit fix (#25)
+- The cloud-app path (`src/app.ts` `onSession`) is unchanged and still works for cloud users
 
 Stack reminder:
 ```
@@ -19,21 +19,16 @@ glasses (Mentra Live)  ←BLE→  mobile (RN/Expo, iOS verified)  ←HTTPS→  R
 1. [`CLAUDE.md`](CLAUDE.md) — root, cloud/Railway side
 2. [`mobile/CLAUDE.md`](mobile/CLAUDE.md) — mobile side + commands status + photo flow + audio pipeline
 3. `~/.claude/plans/i-want-you-to-curried-steele.md` — original research + phased plan (verification criteria at the bottom)
-4. Recent PRs in order: `gh pr list --state merged --limit 16`
+4. Recent PRs in order: `gh pr list --state merged --limit 30`
 
-## Quick wins (do first, free or near-free)
+## Done since the PR #16 handoff
 
-- [ ] **Delete orphan `(knocks on table)` face** from PR #15 testing. It'll false-match in who-is-this. Either via the Contacts tab in the mobile app, OR:
-  ```bash
-  curl -X DELETE https://<ngrok>/api/faces/9fef7182-9213-4bab-a87b-613e439d7cb1
-  ```
+- [x] **Graceful glasses-disconnect handling** (PR #21) — `mobile/src/ble/connection.ts` surfaces a disconnect signal; `camera.ts` races it against the capture wait; listening state cancels + speaks `glassesDisconnected` instead of hanging to the 25s timeout.
+- [x] **Pre-bundled static-phrase audio** (PR #22) — 14 MP3s in `mobile/assets/phrases/` (didntCatch, unknownCommand, enroll prompt/failure, generalError, repeatNoHistory, glassesDisconnected × ar/en). Zero latency + no TTS spend for these.
+- [x] **ContactsScreen CRUD** (PR #23) + grid layout (PR #24) — rename + delete wired to the relay PUT/DELETE.
+- [x] **Orphan `(knocks on table)` face** — gone from local `data/faces/metadata.json`. (If the remote Rekognition collection still lists faceId `9fef7182-…`, delete it via the Contacts tab to be safe.)
 
 ## Tier 1 — Demo-stage critical (the only things that could embarrass you live)
-
-- [ ] **Graceful glasses-disconnect handling.** Plan-doc criterion: *"Glasses disconnect mid-session → app reconnects automatically; in-flight command fails gracefully with a spoken error."* Today: auto-reconnect on launch works, but a mid-command BLE drop hangs the command until the 25s `CAPTURE_TIMEOUT_MS` instead of speaking an error. **~2 hours.** Touch points:
-  - `mobile/src/ble/camera.ts` — race a BLE-disconnect signal alongside the existing wait/error/timeout
-  - `mobile/src/ble/connection.ts` — surface a `disconnected` observable
-  - `mobile/src/state/listening.ts` — cancel paths already abort; just need to also wire disconnect → cancel + speak error
 
 - [ ] **Onboarding wizard for first-launch pairing.** New users get dropped into Home with a "Scan for glasses" button. A 30s guided flow (welcome → permission grants → pair → done) matters for non-Suhail-team users. Touch points:
   - Add `mobile/src/screens/OnboardingScreen.tsx`
@@ -45,13 +40,9 @@ glasses (Mentra Live)  ←BLE→  mobile (RN/Expo, iOS verified)  ←HTTPS→  R
 
 ## Tier 2 — Production hygiene (cheap, high value)
 
-- [ ] **Pre-bundled WAVs for ~18 static phrases** (`didntCatch`, `unknownCommand`, all 8 routed-command messages × 2 langs, enrollment success/failure templates). Zero latency for those, big cut in TTS spend. ~30 min. Pattern: same as `mobile/scripts/generate-cues.ts` + bundle into `mobile/assets/`.
-
-- [ ] **LC3 audio compression on mobile.** PR #14 bumped the JSON body limit to dodge HTTP 413, but a better fix is to never send a 100KB+ JSON in the first place. Check if `@mentra/bluetooth-sdk` 0.1.6 exposes `mic_lc3` events (it does, per `BluetoothSdk.types.d.ts`). ~3× smaller STT payloads, ~200-400ms less network time.
+- [ ] **LC3 audio compression on mobile.** PR #14 (and again PR #25, now 10MB) bumped the JSON body limit to dodge HTTP 413 — a band-aid. The real fix is to never send a 100KB+ JSON in the first place. Check if `@mentra/bluetooth-sdk` 0.1.6 exposes `mic_lc3` events (it does, per `BluetoothSdk.types.d.ts`). ~3× smaller STT payloads, ~200-400ms less network time.
 
 - [ ] **Port `src/utils/timeline.ts` perf instrumentation to mobile.** Plan-doc criterion: *"Audio latency measurements documented."* We're eyeballing today. The cloud version already has session-level span tracking — copy it. Gives real numbers instead of "feels faster."
-
-- [ ] **ContactsScreen CRUD.** Currently just lists enrolled faces. The relay already exposes PUT/DELETE for rename + delete; mobile just needs the UI. ~40 LOC. See `mobile/src/screens/ContactsScreen.tsx`.
 
 - [ ] **Per-device rate limiting.** `(req as any).deviceId` is set on every relay request but unused. Would matter if the relay ever goes public.
 
