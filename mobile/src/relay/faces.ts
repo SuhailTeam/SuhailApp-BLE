@@ -1,4 +1,4 @@
-import { getJson, postJson } from "./client";
+import { deleteJson, getJson, postJson, putJson, relayUrl } from "./client";
 import type { ImageSource } from "./vision";
 
 export interface FaceMatch {
@@ -40,4 +40,23 @@ export function enrollFace(source: ImageSource, name: string, signal?: AbortSign
 /** Lists all enrolled faces (uses the existing open /api/faces GET endpoint). */
 export function listFaces(signal?: AbortSignal) {
   return getJson<{ faces: EnrolledFace[]; count: number }>("/api/faces", { signal });
+}
+
+/** Renames an enrolled face. Server: PUT /api/faces/:faceId { name } → { success }. */
+export function renameFace(faceId: string, name: string, signal?: AbortSignal) {
+  return putJson<{ success: boolean }>(`/api/faces/${encodeURIComponent(faceId)}`, { name }, { signal });
+}
+
+/** Deletes an enrolled face. Server: DELETE /api/faces/:faceId → { success }. */
+export function deleteFace(faceId: string, signal?: AbortSignal) {
+  return deleteJson<{ success: boolean }>(`/api/faces/${encodeURIComponent(faceId)}`, { signal });
+}
+
+/**
+ * Absolute URL of a face's enrollment photo — an open GET endpoint, usable
+ * directly as an `<Image>` source. Only meaningful when the face's `hasPhoto`
+ * is true (otherwise the endpoint 404s).
+ */
+export function facePhotoUrl(faceId: string): string {
+  return relayUrl(`/api/faces/${encodeURIComponent(faceId)}/photo`);
 }
