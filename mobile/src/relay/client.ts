@@ -118,6 +118,35 @@ export async function getJson<T>(path: string, opts: RequestOptions = {}): Promi
   return (await response.json()) as T;
 }
 
+/** PUT JSON, parse JSON response. Throws RelayError on non-2xx. */
+export async function putJson<T>(path: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
+  const response = await rawRequest(path, "PUT", { ...opts, body });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new RelayError(response.status, path, `HTTP ${response.status}`, text);
+  }
+  return (await response.json()) as T;
+}
+
+/** DELETE, parse JSON response. Throws RelayError on non-2xx. */
+export async function deleteJson<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const response = await rawRequest(path, "DELETE", opts);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new RelayError(response.status, path, `HTTP ${response.status}`, text);
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * Absolute relay URL for a path. Use when you need the URL directly rather than
+ * a fetch wrapper — e.g. an `<Image>` source pointing at an open GET endpoint
+ * (the face photo route is unauthenticated, so no headers are required).
+ */
+export function relayUrl(path: string): string {
+  return buildUrl(path);
+}
+
 /** POST returning raw binary (e.g. /api/tts audio bytes). */
 export async function postBinary(path: string, body: unknown, opts: RequestOptions = {}): Promise<RelayBinaryResponse> {
   const response = await rawRequest(path, "POST", { ...opts, body, accept: opts.accept ?? "*/*" });
