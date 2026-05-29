@@ -151,6 +151,33 @@ export class SuhailApp extends AppServer {
     // Existing routes that read JSON (settings PUT, faces rename) send tiny
     // bodies, so the larger limit doesn't expand attack surface for them.
     const { json, static: serveStatic } = require("express");
+
+    // ROOT CAUSE of the /api/stt HTTP 413: the MentraOS SDK registers a global
+    // `express.json()` with the DEFAULT 100KB limit during AppServer setup
+    // (@mentra/sdk dist/index.js — `this.app.use(express.json())`), BEFORE our
+    // routes. Because it sits earlier in the middleware stack it parses the body
+    // FIRST and rejects /api/stt requests carrying ≥ ~100KB of base64 PCM
+    // (>~2.4s of 16kHz/16-bit/mono audio) with 413 before our handler — and
+    // before the `/api` parser below ever runs (it was effectively dead code).
+    // Reproduced: 67KB body → 200, 147KB body → 413.
+    //
+    // Fix at the source: bump that existing parser's limit to 10MB in place.
+    // The SDK uses a plain `express.json()` (no `verify`), so swapping in a
+    // higher-limit parser is behaviour-identical apart from the size cap. The
+    // `/api` parser below is kept as defense-in-depth (no-ops once parsed).
+    try {
+      const stack = (expressApp as any)._router?.stack ?? [];
+      const sdkJsonLayer = stack.find((l: any) => l?.handle?.name === "jsonParser");
+      if (sdkJsonLayer) {
+        sdkJsonLayer.handle = json({ limit: "10mb" });
+        logger.info("Bumped MentraOS SDK json body limit 100KB → 10MB (fixes /api/stt 413)");
+      } else {
+        logger.warn("Could not locate SDK json parser to bump; relying on /api + relay parsers");
+      }
+    } catch (err) {
+      logger.warn("Failed to bump SDK json body limit:", err);
+    }
+
     expressApp.use("/api", json({ limit: "10mb" }));
 
     // Serve generated audio cues at /cues/*.wav (consumed by session.audio.playAudio)
