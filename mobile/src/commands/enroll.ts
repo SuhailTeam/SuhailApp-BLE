@@ -1,6 +1,6 @@
 import { resolvePhoto, type CapturedPhoto } from "../ble/camera";
 import { enrollFace } from "../relay/faces";
-import type { Language } from "../i18n/messages";
+import { messages, type Language } from "../i18n/messages";
 import {
   setPendingPhoto,
   consumePendingPhoto,
@@ -27,18 +27,11 @@ const ECHO_PATTERNS = [
   "capturing face", "جاري التقاط",
 ];
 
-const PROMPT = {
-  ar: "تم التقاط الصورة. من فضلك قل اسم الشخص.",
-  en: "Photo captured. Please say the person's name.",
-} as const;
-
+// PROMPT + FAILURE live in i18n/messages.ts (messages.enrollPrompt /
+// messages.enrollFailed) so they can be pre-bundled as audio. SUCCESS stays
+// here because it embeds the name and so can't be a static asset.
 const SUCCESS = (name: string, language: Language): string =>
   language === "ar" ? `تم تسجيل ${name} بنجاح.` : `${name} has been enrolled successfully.`;
-
-const FAILURE = {
-  ar: "فشل تسجيل الوجه. حاول مرة ثانية.",
-  en: "Face enrollment failed. Please try again.",
-} as const;
 
 /**
  * Step 1: capture a photo and stash it as the pending enrollment. Returns
@@ -59,7 +52,7 @@ export async function executeEnrollStep1(opts: {
 
   setPendingPhoto(photo.photoToken);
   logger.info(`step 1: photo ${photo.photoToken.slice(0, 8)}... captured; awaiting name`);
-  return PROMPT[language];
+  return messages.enrollPrompt[language];
 }
 
 /**
@@ -115,7 +108,7 @@ export async function completeEnrollment(opts: {
 
     if (!result?.faceId) {
       logger.warn("enrollFace returned no faceId");
-      return FAILURE[opts.language];
+      return messages.enrollFailed[opts.language];
     }
 
     logger.info(`enrolled "${cleaned}" → faceId ${result.faceId.slice(0, 8)}...`);
@@ -123,7 +116,7 @@ export async function completeEnrollment(opts: {
   } catch (err) {
     if (takeInterruptedFlag()) return null;
     logger.error("enrollment failed:", err);
-    return FAILURE[opts.language];
+    return messages.enrollFailed[opts.language];
   } finally {
     unmarkProcessing();
   }

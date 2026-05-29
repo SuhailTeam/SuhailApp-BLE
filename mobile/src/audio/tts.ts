@@ -3,6 +3,7 @@ import { synthesize, type AudioFormat } from "../relay/tts";
 import { getSettings } from "../state/settings";
 import { Logger } from "../utils/logger";
 import { play } from "./playback";
+import { bundledPhraseAsset } from "./phrases";
 
 const logger = new Logger("Audio.TTS");
 
@@ -28,6 +29,22 @@ function extensionFor(format: AudioFormat): string {
 export async function speak(text: string, opts: { signal?: AbortSignal } = {}): Promise<void> {
   const settings = getSettings();
   const t0 = Date.now();
+
+  // Pre-bundled phrase fast path: the hot static phrases (errors, "didn't
+  // catch", enrollment prompt, etc.) ship as committed audio assets, so they
+  // play instantly with no /api/tts round-trip and zero ElevenLabs spend. Only
+  // taken at DEFAULT voice + speed — a user who picked a different voice/speed
+  // still hears their choice via live TTS for these phrases too. Volume is
+  // applied at playback, so it's honored either way. See audio/phrases.ts +
+  // scripts/generate-phrases.ts.
+  if (settings.voicePreset === "default" && Math.abs(settings.speechSpeed - 1.0) < 0.001) {
+    const asset = bundledPhraseAsset(text);
+    if (asset != null) {
+      logger.debug(`bundled phrase: "${snippet(text)}"`);
+      await play(asset, { volume: settings.volume, label: `phrase:${snippet(text)}` });
+      return;
+    }
+  }
 
   const response = await synthesize({
     text,

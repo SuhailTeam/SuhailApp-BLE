@@ -3,7 +3,8 @@ import { playCue } from "../audio/cues";
 import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
 import { cancelCapture, startCapture } from "../ble/mic";
-import { capturePhoto, type CapturedPhoto } from "../ble/camera";
+import { capturePhoto, GLASSES_DISCONNECTED_ERROR, type CapturedPhoto } from "../ble/camera";
+import { onGlassesDisconnected } from "../ble/connection";
 import { transcribe as sttTranscribe } from "../relay/stt";
 import { classifyIntent, type CommandType } from "../relay/intent";
 import { normalize } from "../relay/normalize";
@@ -346,7 +347,10 @@ export async function processTranscription(text: string, confidence: number): Pr
     const reply = await dispatchCommand(route.command, route.params, language);
     await finishProcessing(reply);
   } catch (err) {
-    if (err instanceof Error && (err.name === "AbortError" || err.message === "aborted" || err.message === "interrupted")) {
+    if (err instanceof Error && (err.name === "AbortError" || err.message === "aborted" || err.message === "interrupted" || err.message === GLASSES_DISCONNECTED_ERROR)) {
+      // Cancellations (interrupt / abort) and glasses drops are handled by
+      // their own paths — the disconnect handler speaks its own message, so
+      // we must NOT also speak the generic error here.
       return;
     }
     logger.error(`command ${route.command} failed:`, err);
@@ -628,3 +632,53 @@ export function reset(): void {
   clearLastResponse();
   useListening.setState({ state: "idle", activatedAt: 0, speaking: false });
 }
+
+/**
+ * Glasses dropped off BLE. If a command is in flight (active/processing) or a
+ * face enrollment is pending, abort everything and speak a disconnect notice.
+ * Without this, an in-flight capture would hang until CAPTURE_TIMEOUT_MS (25s)
+ * before failing — the plan-doc criterion is "in-flight command fails
+ * gracefully with a spoken error."
+ *
+ * Speech is attempted even though the glasses speaker is gone: expo-audio falls
+ * back to the phone's default output once the A2DP link drops, and
+ * speakWithEchoGuard swallows any playback failure, so the worst case is
+ * silence rather than a hang. Unlike reset(), we KEEP lastResponse so the user
+ * can still repeat the previous result after auto-reconnect.
+ */
+async function handleGlassesDisconnect(): Promise<void> {
+  const { state } = useListening.getState();
+  const pendingEnroll = hasPendingEnrollment();
+  if (state === "idle" && !pendingEnroll) {
+    logger.debug("glasses disconnected while idle — nothing to abort");
+    return;
+  }
+
+  logger.warn(`glasses disconnected during ${state}${pendingEnroll ? " (enrollment pending)" : ""} — aborting`);
+  logActivity("glasses disconnected — command aborted");
+
+  const language = getSettings().language;
+
+  // Abort everything in flight. Bumping the token first makes any in-flight
+  // session bail at its next token check; aborting sttAbort/preCapture rejects
+  // the in-flight capture/HTTP work (swallowed as a cancellation downstream).
+  activationToken++;
+  sttAbort?.abort();
+  sttAbort = null;
+  abortPreCapture();
+  clearEnrollmentTimeout();
+  interruptEnrollment();
+  clearFailsafe();
+  await cancelCapture().catch(() => {});
+  await stopAllAudio().catch(() => {});
+  useListening.setState({ state: "idle", speaking: false });
+
+  await speakWithEchoGuard(messages.glassesDisconnected[language]);
+}
+
+// Wire the disconnect handler once at module load. The connection store
+// (ble/connection.ts) fires this on every connected → disconnected transition,
+// fed from the React session via HomeScreen.
+onGlassesDisconnected(() => {
+  void handleGlassesDisconnect();
+});
