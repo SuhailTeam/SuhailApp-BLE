@@ -65,10 +65,11 @@ const commandMap: Array<{ words: string[]; command: CommandType }> = [
 ];
 
 /**
- * Keyword-based command routing (fallback).
- * Matches the first word of the transcription against known trigger words.
+ * Matches the FIRST word of the transcription against the known trigger words.
+ * Returns a RouteResult for an explicit command, or null when nothing matched
+ * (so the caller can try the LLM, or fall back to the visual-qa default).
  */
-function routeCommandByKeyword(transcription: string): RouteResult | null {
+function matchKeywordCommand(transcription: string): RouteResult | null {
   const text = transcription.toLowerCase().trim();
   if (text.length === 0) return null;
 
@@ -76,8 +77,6 @@ function routeCommandByKeyword(transcription: string): RouteResult | null {
 
   for (const entry of commandMap) {
     if (entry.words.includes(firstWord)) {
-      logger.info(`[Keyword] Matched: ${entry.command} (trigger: "${firstWord}")`);
-
       let params: Record<string, string> | undefined;
       if (entry.command === "find-object") {
         const rest = text.slice(firstWord.length).trim();
@@ -85,9 +84,21 @@ function routeCommandByKeyword(transcription: string): RouteResult | null {
       } else if (entry.command === "ocr-read-text") {
         params = { context: transcription };
       }
-
       return { command: entry.command, params, rawText: transcription };
     }
+  }
+  return null;
+}
+
+/**
+ * Keyword-based command routing — used as the final fallback when the LLM is
+ * unavailable. Matches an explicit trigger word, else defaults to visual-qa.
+ */
+function routeCommandByKeyword(transcription: string): RouteResult | null {
+  const matched = matchKeywordCommand(transcription);
+  if (matched) {
+    logger.info(`[Keyword] Matched: ${matched.command}`);
+    return matched;
   }
 
   // Default: treat as visual question answering
@@ -201,7 +212,18 @@ export async function routeCommand(
     return null;
   }
 
-  // Try LLM classification first
+  // Fast-path: an explicit trigger word ("describe", "read", "who", "find",
+  // "money", "color", "enroll" + Arabic equivalents) routes instantly, skipping
+  // the ~2-3s OpenRouter classification. The LLM is reserved for ambiguous
+  // phrasings (questions, "what's in front of me") where keyword matching can't
+  // distinguish scene-summarize from visual-qa.
+  const keywordMatch = matchKeywordCommand(text);
+  if (keywordMatch) {
+    logger.info(`[Keyword fast-path] ${keywordMatch.command} — skipping LLM`);
+    return keywordMatch;
+  }
+
+  // No explicit trigger — use the LLM for nuance.
   const classification = await classifyIntent(text, signal);
 
   if (classification) {
