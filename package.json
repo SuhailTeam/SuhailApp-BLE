@@ -1,12 +1,11 @@
 {
   "name": "suhail",
   "version": "1.0.0",
-  "description": "Suhail — AI Smart Glasses for the Visually Impaired (MentraOS App)",
+  "description": "Suhail — AI relay server for the BLE smart-glasses app (visually impaired users)",
   "main": "src/index.ts",
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
-    "build": "cd landing && bun install && bun run build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
