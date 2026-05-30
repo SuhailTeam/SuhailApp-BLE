@@ -9,6 +9,7 @@ import HomeScreen from "./screens/HomeScreen";
 import ContactsScreen from "./screens/ContactsScreen";
 import ActivityScreen from "./screens/ActivityScreen";
 import SettingsScreen from "./screens/SettingsScreen";
+import { BluetoothSessionProvider } from "./ble/connection";
 import { useSettings } from "./state/settings";
 
 const Tab = createBottomTabNavigator();
@@ -21,8 +22,9 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <Tab.Navigator
+      <BluetoothSessionProvider>
+        <NavigationContainer>
+          <Tab.Navigator
           screenOptions={{
             headerStyle: { backgroundColor: "#0F172A" },
             headerTintColor: "#F8FAFC",
@@ -37,7 +39,8 @@ export default function App() {
           <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: labels.settings }} />
         </Tab.Navigator>
         <StatusBar style="light" />
-      </NavigationContainer>
+        </NavigationContainer>
+      </BluetoothSessionProvider>
     </SafeAreaProvider>
   );
 }

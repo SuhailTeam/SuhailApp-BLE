@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback } from "react";
 import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { setGlassesConnected, useSuhailBluetooth } from "../ble/connection";
+import { useBluetoothSession } from "../ble/connection";
 import { useBatteryStatus, useButtonPress, useTouchEvent } from "../ble/events";
 import { useActivity } from "../state/activity";
 import { useSettings } from "../state/settings";
@@ -12,7 +12,7 @@ import { Logger } from "../utils/logger";
 const logger = new Logger("HomeScreen");
 
 export default function HomeScreen() {
-  const session = useSuhailBluetooth();
+  const session = useBluetoothSession();
   const language = useSettings((s) => s.language);
   const logEvent = useActivity((s) => s.log);
 
@@ -49,12 +49,9 @@ export default function HomeScreen() {
   const isConnected = session.glasses.connected;
   const stateLabel = session.glasses.connection.state;
 
-  // Mirror connection state into the imperative store so the camera flow and
-  // listening state machine (both non-React) can fail fast / abort + speak an
-  // error on a mid-command BLE drop instead of hanging out the 25s timeout.
-  useEffect(() => {
-    setGlassesConnected(isConnected);
-  }, [isConnected]);
+  // Connection state is mirrored into the imperative store by the always-mounted
+  // BluetoothSessionProvider (App root), so the camera/listening modules see an
+  // accurate flag regardless of which tab is active.
 
   const labels = language === "ar"
     ? {

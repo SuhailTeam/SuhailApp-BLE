@@ -347,10 +347,19 @@ export async function processTranscription(text: string, confidence: number): Pr
     const reply = await dispatchCommand(route.command, route.params, language);
     await finishProcessing(reply);
   } catch (err) {
-    if (err instanceof Error && (err.name === "AbortError" || err.message === "aborted" || err.message === "interrupted" || err.message === GLASSES_DISCONNECTED_ERROR)) {
-      // Cancellations (interrupt / abort) and glasses drops are handled by
-      // their own paths — the disconnect handler speaks its own message, so
-      // we must NOT also speak the generic error here.
+    const msg = err instanceof Error ? err.message : String(err);
+    // Genuine user cancellations / interrupts → stay silent (the user acted).
+    if (err instanceof Error && (err.name === "AbortError" || msg === "aborted" || msg === "interrupted")) {
+      return;
+    }
+    // Glasses dropped — either a fail-fast pre-check (no connected→disconnected
+    // transition, so handleGlassesDisconnect won't fire) or a mid-capture drop.
+    // Always speak the notice, deduped against the transition handler so it's
+    // said exactly once and the user is NEVER left in silence.
+    if (msg === GLASSES_DISCONNECTED_ERROR) {
+      logger.warn(`command ${route.command} aborted: glasses disconnected`);
+      logActivity(`${route.command} aborted: glasses disconnected`);
+      await announceDisconnectOnce(language);
       return;
     }
     logger.error(`command ${route.command} failed:`, err);
@@ -634,6 +643,26 @@ export function reset(): void {
 }
 
 /**
+ * Dedup window so a glasses drop is announced exactly once even when both the
+ * command-dispatch catch (fail-fast / mid-capture) and handleGlassesDisconnect
+ * (connected→disconnected transition) fire for the same drop.
+ */
+const DISCONNECT_DEDUP_MS = 2_500;
+let lastDisconnectAnnouncedAt = 0;
+
+/**
+ * Speaks the bilingual "glasses disconnected" notice at most once per
+ * DISCONNECT_DEDUP_MS. Used by every disconnect path so the user is never left
+ * in silence and never double-spoken. `glassesDisconnected` is a bundled phrase,
+ * so it plays instantly with no relay round-trip even when the link is degraded.
+ */
+async function announceDisconnectOnce(language: Language): Promise<void> {
+  if (Date.now() - lastDisconnectAnnouncedAt < DISCONNECT_DEDUP_MS) return;
+  lastDisconnectAnnouncedAt = Date.now();
+  await finishProcessing(messages.glassesDisconnected[language]);
+}
+
+/**
  * Glasses dropped off BLE. If a command is in flight (active/processing) or a
  * face enrollment is pending, abort everything and speak a disconnect notice.
  * Without this, an in-flight capture would hang until CAPTURE_TIMEOUT_MS (25s)
@@ -673,7 +702,7 @@ async function handleGlassesDisconnect(): Promise<void> {
   await stopAllAudio().catch(() => {});
   useListening.setState({ state: "idle", speaking: false });
 
-  await speakWithEchoGuard(messages.glassesDisconnected[language]);
+  await announceDisconnectOnce(language);
 }
 
 // Wire the disconnect handler once at module load. The connection store
