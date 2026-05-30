@@ -24,6 +24,7 @@ import { getLastResponse, setLastResponse, clearLastResponse } from "./lastRespo
 import { getSettings } from "./settings";
 import { isValidTranscription, needsScriptNormalization, stripAnnotations } from "../utils/transcription-filter";
 import { Logger } from "../utils/logger";
+import { startTimeline, mark, endTimeline } from "../utils/timeline";
 
 const logger = new Logger("Listening");
 
@@ -315,10 +316,13 @@ export async function processTranscription(text: string, confidence: number): Pr
     }
   }
 
+  mark("normalize-done");
+
   // Step 3: classify intent.
   let route;
   try {
     route = await classifyIntent(normalised, language, sttAbort?.signal);
+    mark("intent-done");
   } catch (err) {
     if (err instanceof Error && (err.name === "AbortError" || err.message === "interrupted")) {
       return;
@@ -344,7 +348,9 @@ export async function processTranscription(text: string, confidence: number): Pr
   }
 
   try {
+    mark("dispatch-start");
     const reply = await dispatchCommand(route.command, route.params, language);
+    mark("dispatch-done");
     await finishProcessing(reply);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -480,6 +486,7 @@ function describeRoutedCommand(
  */
 async function runListenSession(withCue: boolean): Promise<void> {
   const myToken = ++activationToken;
+  startTimeline("cmd");
 
   // Enter "active" state immediately so the UI updates while the cue plays.
   clearFailsafe();
@@ -492,6 +499,7 @@ async function runListenSession(withCue: boolean): Promise<void> {
   // resolvePhoto() in each command falls back to a fresh capture if the
   // pre-capture isn't ready in 3s or failed.
   startPreCapture();
+  mark("precapture-started");
 
   if (withCue) {
     try {
@@ -500,6 +508,7 @@ async function runListenSession(withCue: boolean): Promise<void> {
       logger.debug(`listening cue failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  mark("listening-cue-done");
   if (myToken !== activationToken) return; // interrupted while cue played
   if (useListening.getState().state !== "active") return;
 
@@ -528,6 +537,7 @@ async function runListenSession(withCue: boolean): Promise<void> {
   }
 
   clearFailsafe();
+  mark("mic-capture-done");
   if (myToken !== activationToken) {
     logger.debug("capture finished but session was interrupted — dropping result");
     return;
@@ -551,9 +561,11 @@ async function runListenSession(withCue: boolean): Promise<void> {
   // interrupt at any point in the processing phase aborts the in-flight HTTP
   // call. Not nulled until the whole session finishes (or the catch fires).
   sttAbort = new AbortController();
+  mark("stt-start");
   try {
     const result = await sttTranscribe(capture.audioBase64, getSettings().language, sttAbort.signal);
     if (myToken !== activationToken) return;
+    mark("stt-done");
 
     const confidence = result.confidence ?? 1.0;
     const text = result.text?.trim() ?? "";
@@ -612,10 +624,15 @@ async function speakWithEchoGuard(text: string): Promise<void> {
   setLastResponse(text);
   useListening.setState({ speaking: true });
   try {
+    mark("tts-call");
     await speak(text);
+    mark("tts-playback-done");
   } catch (err) {
     logger.warn(`speak failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
+    // Dump the per-command latency breakdown (no-op for repeat/disconnect speech
+    // that has no in-flight timeline). Always runs, even when speak() failed.
+    endTimeline();
     setTimeout(() => {
       useListening.setState({ speaking: false });
       logger.debug("TTS echo guard lifted");
