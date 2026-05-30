@@ -13,11 +13,13 @@
     "@aws-sdk/client-rekognition": "^3.887.0",
     "@mentra/sdk": "2.1.29",
     "@types/multer": "^2.1.0",
+    "express": "^4.22.2",
     "multer": "^2.1.1",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/express": "^5.0.6",
     "@types/sharp": "^0.32.0",
     "typescript": "^5.3.0"
   }
