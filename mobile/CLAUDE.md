@@ -277,7 +277,7 @@ Same model as the cloud version. The `messages` constant in [`src/services/tts-s
 
 Language detection: respect the user's selected language (`settings.language`). Do NOT auto-detect from STT (we already learned that lesson with `onTranscriptionForLanguage` vs `onTranscription`).
 
-RTL: required when language is Arabic. React Native has `I18nManager.forceRTL(true)`. Plan: set on app boot based on `settings.language`; if changed, the app needs to restart (`Updates.reloadAsync()` from `expo-updates`) for layout to flip. This is fine, matches what users expect from RTL toggles.
+RTL: required when language is Arabic. Implemented in `src/App.tsx` at module load — read the saved language synchronously (`getSettings().language`), `I18nManager.allowRTL(true)`, and `forceRTL(wantRTL)` when it differs from the current direction. `forceRTL` only takes full effect after a JS reload, so the **Settings language toggle** (`SettingsScreen.tsx`) flips the strings immediately and, when the layout direction changes, shows a "restart required" `Alert` (`ui.settings.restartMsg`) asking the user to reopen the app. We deliberately do **not** add `expo-updates`/`Updates.reloadAsync()` — the default language is Arabic, so a fresh install already boots RTL, and the toggle-needs-restart path is the rare case. Use logical styles (`start`/`end`, RN auto-mirrors `flexDirection: row` under RTL) in new UI.
 
 ## Settings
 
@@ -293,6 +293,20 @@ interface AppSettings {
 ```
 
 Storage: MMKV. Defaults: `{ speechSpeed: 1.0, volume: 1.0, voicePreset: "default", language: "ar" }`. Validation/clamping same as the cloud version.
+
+**Display-only prefs are NOT in `AppSettings`.** `AppSettings` is the server-contract shape (the relay/TTS consume it), so theme/text-size live in a separate `state/appearance.ts` store (MMKV id `suhail-appearance`): `{ themeMode: "dark" | "highContrast"; textScale: 0.85–1.5 }`, same clamp/sanitise pattern as `settings.ts`. The first-launch flag lives in `state/onboarding.ts` (MMKV id `suhail-onboarding`, synchronous `getHasOnboarded()`). Keep these out of `AppSettings` so the server contract doesn't grow display fields.
+
+## UI & theming
+
+The companion UI is built on a centralized, WCAG-checked theme (no UI-kit dependency). Targets WCAG 2.1 AA across the board (text 4.5:1, large/UI 3:1, touch targets ≥44px) and AAA contrast (7:1) where feasible. **The phone screen is still secondary** — the core voice flow has zero on-screen dependence (rule 3). This UI serves sighted helpers and low-vision / VoiceOver users.
+
+- **Theme (`src/theme/`):** `ThemeProvider` (React Context) exposes `useTheme()` → an immutable `Theme` (colors, spacing, radii, typography scale, `minTouch: 44`, `borderWidth`). Two modes: `dark` (default) + `highContrast`; architecture is extensible to a future `light`. Components build styles with `const styles = useMemo(() => createStyles(theme), [theme])` where `createStyles = makeStyles((t) => StyleSheet.create({...}))`. The theme identity only changes on a themeMode/textScale change, so styles recompute rarely. `palettes.ts` holds the WCAG hex tables (with contrast notes); `navTheme.ts → toNavigationTheme()` maps tokens onto React Navigation's v7 theme (spreads `DarkTheme` for the required `fonts` block).
+- **Typography scale** folds in the user `textScale`; OS Dynamic Type is applied on top by RN `Text` (don't multiply by `PixelRatio.getFontScale()` too — that double-applies). Use `minHeight` not fixed `height`, `flexShrink`, `numberOfLines`, and `hitSlop` so scaled text never clips.
+- **Primitives (`src/components/`):** `Screen`, `Card` (tones default/ok/warn/danger), `AppButton` (variants + busy/disabled a11y, 44px), `Stepper` (`accessibilityRole="adjustable"`), `Chip` (selected = check glyph, not colour alone), `SettingRow`, `SectionHeader` (role=header), `StatusDot` (shape-by-state, not colour alone). Build screens from these — don't re-hardcode colours.
+- **Accessibility conventions:** every control has `accessibilityRole` + label + state; the stepper is one adjustable node with increment/decrement actions; the rename modal is `accessibilityViewIsModal`; HomeScreen announces connection + listening transitions via `AccessibilityInfo.announceForAccessibility` (additive, never the only feedback — the audio cues still carry the core flow). Never convey status by colour alone (the listening dot, connection card, and activity tags all pair colour with a glyph/word).
+- **Navigation:** `src/App.tsx` = `SafeAreaProvider > ThemeProvider > BluetoothSessionProvider > NavigationContainer(themed) > native-stack`. The stack gates **Onboarding** vs **Main** on `useOnboarding().hasOnboarded` (synchronous MMKV read = no boot flash); completing onboarding flips the flag and the stack swaps to `MainTabs` (`src/navigation/MainTabs.tsx`, Ionicons + accessible tab labels). The single `useSuhailBluetooth()` instance stays in `BluetoothSessionProvider`; screens + onboarding read it via `useBluetoothSession()`.
+- **UI strings:** screen/onboarding/appearance/a11y strings live in `src/i18n/ui.ts` (`ui` + `uiFn` for interpolated, `useUi()` hook) — SEPARATE from the spoken `messages.ts` (which feeds the phrase generator and must stay clean). Add UI copy to `ui.ts`, never to `messages.ts`.
+- **Branding:** the app icon, splash, and in-app marks are generated from the team's logo art by `scripts/make-icons.ts` (uses `sharp` from the repo-root node_modules — run `bun mobile/scripts/make-icons.ts`). The white mark composited on brand navy `#020617` → `assets/icon.png` (opaque, iOS-safe) + `assets/splash.png`; `assets/logo-white.png` is used in onboarding. Wired in `app.config.ts` (`icon` + `splash`).
 
 ## Environment variables (mobile)
 
@@ -329,7 +343,11 @@ mobile/
 │       ├── got-it.wav
 │       └── cancelled.wav
 └── src/
-    ├── App.tsx                      # Root navigator
+    ├── App.tsx                      # Root: ThemeProvider > BluetoothSessionProvider > themed native-stack (Onboarding|Main)
+    ├── theme/                       # Centralized WCAG theme (tokens, palettes, ThemeProvider, navTheme, buildTheme)
+    ├── components/                  # Shared primitives (Screen, Card, AppButton, Stepper, Chip, SettingRow, SectionHeader, StatusDot)
+    ├── navigation/
+    │   └── MainTabs.tsx             # Bottom tabs (themed, Ionicons + a11y labels)
     ├── ble/
     │   ├── connection.ts            # Scan, connect, reconnect
     │   ├── events.ts                # Button / touch / battery subscriptions
@@ -351,7 +369,9 @@ mobile/
     ├── state/
     │   ├── listening.ts             # State machine (see section above)
     │   ├── enrollment.ts            # 2-step enrollment state
-    │   ├── settings.ts              # Zustand store, MMKV-backed
+    │   ├── settings.ts              # Zustand store, MMKV-backed (server-contract AppSettings)
+    │   ├── appearance.ts            # Display prefs: themeMode + textScale (MMKV, NOT in AppSettings)
+    │   ├── onboarding.ts            # First-launch hasOnboarded flag (MMKV)
     │   └── activity.ts              # Rolling 20-event log
     ├── relay/
     │   ├── client.ts                # HTTPS client + HMAC auth
@@ -359,13 +379,14 @@ mobile/
     │   ├── vision.ts                # /api/vision/*
     │   └── faces.ts                 # /api/faces/*
     ├── i18n/
-    │   └── messages.ts              # Bilingual constants (copy from server)
+    │   ├── messages.ts              # Spoken bilingual constants (copy from server; feeds phrase generator)
+    │   └── ui.ts                    # On-screen UI strings + useUi() (separate from messages.ts)
     ├── screens/
-    │   ├── HomeScreen.tsx           # Status + voice commands reference
+    │   ├── HomeScreen.tsx           # Status hero + listening + voice commands reference
     │   ├── ContactsScreen.tsx       # Enrolled faces CRUD
     │   ├── ActivityScreen.tsx       # Rolling log
-    │   ├── SettingsScreen.tsx       # Sliders + toggles
-    │   └── OnboardingScreen.tsx     # First-launch pairing
+    │   ├── SettingsScreen.tsx       # Voice output + Appearance/accessibility (theme, text size)
+    │   └── OnboardingScreen.tsx     # First-launch wizard (welcome → permissions → pair → done)
     └── utils/
         ├── logger.ts                # Same Logger interface as server
         ├── timeline.ts              # Latency spans (port from src/utils/timeline.ts)
@@ -425,6 +446,7 @@ eas build --profile production --platform all        # Production builds for bot
 bun run typecheck                     # tsc --noEmit
 bun run scripts/generate-cues.ts      # Regenerate cue chimes (synthetic, no network)
 bun run scripts/generate-phrases.ts   # Regenerate pre-bundled phrase audio (needs repo-root ELEVENLABS_API_KEY)
+bun scripts/make-icons.ts             # Regenerate app icon + splash + logo marks (uses repo-root sharp)
 ```
 
 ## References

@@ -1,46 +1,56 @@
 import "react-native-gesture-handler";
-import React from "react";
+import React, { useMemo } from "react";
+import { I18nManager } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import HomeScreen from "./screens/HomeScreen";
-import ContactsScreen from "./screens/ContactsScreen";
-import ActivityScreen from "./screens/ActivityScreen";
-import SettingsScreen from "./screens/SettingsScreen";
 import { BluetoothSessionProvider } from "./ble/connection";
-import { useSettings } from "./state/settings";
+import { ThemeProvider, toNavigationTheme, useTheme } from "./theme";
+import { MainTabs } from "./navigation/MainTabs";
+import OnboardingScreen from "./screens/OnboardingScreen";
+import { useOnboarding } from "./state/onboarding";
+import { getSettings } from "./state/settings";
 
-const Tab = createBottomTabNavigator();
+// Apply the saved layout direction once at startup. forceRTL only takes full
+// effect after a reload, so the Settings language toggle prompts a restart on a
+// direction change. Default language is Arabic, so a fresh install boots RTL.
+const wantRTL = getSettings().language === "ar";
+I18nManager.allowRTL(true);
+if (I18nManager.isRTL !== wantRTL) {
+  I18nManager.forceRTL(wantRTL);
+}
 
-export default function App() {
-  const language = useSettings((s) => s.language);
-  const labels = language === "ar"
-    ? { home: "الرئيسية", contacts: "الأشخاص", activity: "النشاط", settings: "الإعدادات" }
-    : { home: "Home", contacts: "Contacts", activity: "Activity", settings: "Settings" };
+const Stack = createNativeStackNavigator();
+
+function RootNavigator(): React.ReactElement {
+  const theme = useTheme();
+  const navTheme = useMemo(() => toNavigationTheme(theme), [theme]);
+  const hasOnboarded = useOnboarding((s) => s.hasOnboarded);
 
   return (
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {hasOnboarded ? (
+          <Stack.Screen name="Main" component={MainTabs} />
+        ) : (
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        )}
+      </Stack.Navigator>
+      <StatusBar style="light" />
+    </NavigationContainer>
+  );
+}
+
+export default function App(): React.ReactElement {
+  return (
     <SafeAreaProvider>
-      <BluetoothSessionProvider>
-        <NavigationContainer>
-          <Tab.Navigator
-          screenOptions={{
-            headerStyle: { backgroundColor: "#0F172A" },
-            headerTintColor: "#F8FAFC",
-            tabBarStyle: { backgroundColor: "#0F172A", borderTopColor: "#1E293B" },
-            tabBarActiveTintColor: "#38BDF8",
-            tabBarInactiveTintColor: "#94A3B8",
-          }}
-        >
-          <Tab.Screen name="Home" component={HomeScreen} options={{ title: labels.home }} />
-          <Tab.Screen name="Contacts" component={ContactsScreen} options={{ title: labels.contacts }} />
-          <Tab.Screen name="Activity" component={ActivityScreen} options={{ title: labels.activity }} />
-          <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: labels.settings }} />
-        </Tab.Navigator>
-        <StatusBar style="light" />
-        </NavigationContainer>
-      </BluetoothSessionProvider>
+      <ThemeProvider>
+        <BluetoothSessionProvider>
+          <RootNavigator />
+        </BluetoothSessionProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
