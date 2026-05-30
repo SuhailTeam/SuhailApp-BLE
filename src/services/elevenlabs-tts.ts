@@ -3,7 +3,7 @@ import { Logger } from "../utils/logger";
 
 const logger = new Logger("ElevenLabsTTS");
 
-/** Voice preset → built-in ElevenLabs voice ID. Mirrors src/services/tts-service.ts. */
+/** Voice preset → built-in ElevenLabs voice ID (used by the relay /api/tts endpoint). */
 const PRESET_VOICE_IDS: Record<string, string> = {
   male: "pNInz6obpgDQGcFmaJgB",    // Adam
   female: "21m00Tcm4TlvDq8ikWAM",  // Rachel

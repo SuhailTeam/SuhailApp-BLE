@@ -1,4 +1,4 @@
-import { routeCommand } from "../commands/command-router";
+import { routeCommand } from "./command-router";
 import * as visionService from "../services/vision-service";
 import * as faceService from "../services/face-service";
 import { synthesize, isValidFormat, contentTypeFor, type AudioFormat } from "../services/elevenlabs-tts";
