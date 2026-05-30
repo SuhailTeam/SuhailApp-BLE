@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.887.0",
-    "@mentra/sdk": "2.1.29",
     "@types/multer": "^2.1.0",
     "express": "^4.22.2",
     "multer": "^2.1.1",
