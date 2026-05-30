@@ -1,8 +1,12 @@
-# Suhail — AI Smart Glasses for the Visually Impaired
+# Suhail — BLE Relay Server
 
 **Graduation Project — SWE 496, King Saud University (KSU)**
 
-Suhail is an AI-powered assistive system that runs on **Mentra Live** smart glasses. It helps visually impaired users perceive and interact with the world through voice commands and real-time AI processing.
+Suhail is an AI-powered assistive system for **visually impaired users** running on **Mentra Live** smart glasses. This repository is the **AI relay server** for the **BLE mobile app** (`mobile/`): a plain Bun/TypeScript + Express HTTP service that does intent routing, vision, face recognition/enrollment, speech-to-text, text-to-speech, and BLE photo capture.
+
+The mobile app talks to the glasses directly over Bluetooth and calls this server's HMAC-authenticated `/api/*` relay for all the AI work. The glasses have a camera, mic, and speaker but **no display** — all output is audio.
+
+> The original MentraOS *cloud-app* version (glasses ↔ phone ↔ MentraOS Cloud ↔ server over WebSocket) lives in a separate repo. This repo is BLE-only and no longer depends on `@mentra/sdk`.
 
 ## Team Members
 
@@ -14,177 +18,136 @@ Suhail is an AI-powered assistive system that runs on **Mentra Live** smart glas
 ## Prerequisites
 
 - [Bun](https://bun.sh) (v1.0+)
-- Node.js 18+ (for some dependencies)
-- [ngrok](https://ngrok.com) (to expose your local server)
-- Mentra app installed on your phone
-- Mentra Live smart glasses paired with the Mentra app
+- An OpenRouter API key, AWS credentials (Rekognition), and an ElevenLabs API key
+- The BLE mobile app (`mobile/`) for end-to-end testing — see `mobile/README.md`
 
 ## Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <repo-url>
-   cd suhail
-   ```
-
-2. **Install dependencies**
+1. **Install dependencies**
    ```bash
    bun install
    ```
 
-3. **Configure environment variables**
+2. **Configure environment variables**
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and fill in your API keys. Key variables:
+   Fill in your keys. Key variables:
 
    | Variable | Purpose | Default |
    |----------|---------|---------|
-   | `MENTRAOS_API_KEY` | MentraOS authentication | (required) |
-   | `OPENROUTER_API_KEY` | OpenRouter API for vision + intent classification | (required) |
-   | `AWS_ACCESS_KEY_ID` | AWS credentials for Rekognition | (required) |
-   | `AWS_SECRET_ACCESS_KEY` | AWS credentials for Rekognition | (required) |
+   | `PORT` | Server port | `3000` |
+   | `OPENROUTER_API_KEY` | OpenRouter — vision + intent classification + normalization | (required) |
+   | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS credentials for Rekognition | (required) |
    | `AWS_REGION` | AWS region | `us-east-1` |
    | `AWS_REKOGNITION_COLLECTION_ID` | Face collection ID | `suhail-faces` |
+   | `RELAY_SHARED_SECRET` | HMAC-Bearer secret shared with the mobile app (empty → relay is open, dev mode) | (empty) |
+   | `ELEVENLABS_API_KEY` | ElevenLabs key for `/api/tts` + `/api/stt` (empty → those return 503) | (empty) |
    | `DEFAULT_LANGUAGE` | Response language (`ar` or `en`) | `ar` |
    | `VISION_MODEL` | OpenRouter model for vision tasks | `google/gemini-2.5-flash-lite` |
    | `CLASSIFICATION_MODEL` | OpenRouter model for intent classification | `google/gemini-2.5-flash-lite` |
    | `CONFIDENCE_THRESHOLD` | Min confidence for face recognition | `0.5` |
-   | `MIN_CONFIDENCE` | Min confidence for transcription filtering | `0.55` |
 
-4. **Start the server**
+3. **Start the server**
    ```bash
-   bun run start
+   bun run start          # or: bun run dev  (auto-restart on change)
    ```
-
-5. **Expose your server with ngrok**
-   ```bash
-   ngrok http 3000
-   ```
-   Copy the ngrok URL and configure it in the Mentra developer portal.
+   It serves `GET /health` and the `/api/*` relay. Point the mobile app's `EXPO_PUBLIC_RELAY_BASE_URL` at this server (locally, expose it with a tunnel such as ngrok; in production it deploys to Railway).
 
 ## Development
 
-### Watch mode (auto-restart on file changes)
 ```bash
-bun run dev
-```
-
-### Type checking
-```bash
-bun run typecheck
+bun run dev         # watch mode (auto-restart)
+bun run typecheck   # tsc --noEmit
 ```
 
 ### Git workflow
 ```bash
-git checkout development                          # Work on development branch
-git checkout -b feature/my-feature development    # Create feature branch
-# Make your changes...
-git add .
-git commit -m "feat: description of change"       # Use conventional commits
-git push origin feature/my-feature                # Push and open PR → development
+git checkout -b feature/my-feature development    # branch off development
+# make changes, conventional commits...
+git push origin feature/my-feature                # open PR → development
 ```
+After merging to `development` and testing, open a PR `development` → `main` for release. See `CLAUDE.md` for full version-control guidelines.
 
-After merging to `development` and testing, open a PR from `development` → `main` for release. See `CLAUDE.md` for full version control guidelines.
+## Relay API (what the mobile app calls)
+
+All endpoints are **POST** under `/api` and require HMAC-Bearer auth (`X-Device-Id` + `Authorization: Bearer <hex(HMAC-SHA256(deviceId, RELAY_SHARED_SECRET))>`), **except** the glasses photo-upload webhook (token-authed) and the face **photo** GET (loaded as an `<img>`). Vision/face endpoints accept either `{ image: <base64> }` or `{ photoToken: <hex> }`.
+
+| Endpoint | Body | Returns |
+|----------|------|---------|
+| `POST /api/intent` | `{ text, language? }` | `{ command, params?, rawText }` |
+| `POST /api/normalize` | `{ text, language }` | `{ text }` |
+| `POST /api/vision/scene` | `{ image\|photoToken, language? }` | `{ description, confidence }` |
+| `POST /api/vision/ocr` | `{ image\|photoToken, context?, language? }` | `{ text }` |
+| `POST /api/vision/currency` | `{ image\|photoToken }` | `CurrencyResult` |
+| `POST /api/vision/object` | `{ image\|photoToken, target, language? }` | `{ found, location, confidence }` |
+| `POST /api/vision/color` | `{ image\|photoToken, language? }` | `{ colorName, hex }` |
+| `POST /api/vision/vqa` | `{ image\|photoToken, question, language? }` | `{ description, confidence }` |
+| `POST /api/faces/recognize` | `{ image\|photoToken }` | `FaceRecognitionResult` |
+| `POST /api/faces/recognize-all` | `{ image\|photoToken }` | `MultiFaceResult` |
+| `POST /api/faces/enroll` | `{ image\|photoToken, name }` | `{ faceId, name, enrolledAt }` |
+| `POST /api/stt` | `{ audio (base64 s16le 16kHz mono PCM), language? }` | `ScribeResult` (503 without `ELEVENLABS_API_KEY`) |
+| `POST /api/tts` | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes (503 without key) |
+| `GET /api/faces` | — | `{ faces, count }` (HMAC-authed) |
+| `GET /api/faces/:id/photo` | — | JPEG (unauthenticated — loaded as `<img>`) |
+| `PUT /api/faces/:id` | `{ name }` | `{ success }` (HMAC-authed) |
+| `DELETE /api/faces/:id` | — | `{ success }` (HMAC-authed) |
+
+**BLE photo-capture flow:** `POST /api/photo/upload-url` mints a one-shot token + `uploadUrl` → mobile tells the glasses to upload → glasses `POST /api/photo/upload/:token` (multipart, unauthenticated — the URL token is the auth) → mobile long-polls `GET /api/photo/wait/:token` → mobile calls a vision/face endpoint with `{ photoToken }`.
 
 ## Features
 
-| Feature | Command | AI Backend | Status |
-|---------|---------|------------|--------|
-| Scene Summarization | "Describe my surroundings" | OpenRouter / Gemini + AWS Rekognition | Working |
-| OCR / Read Text | "Read this text" | OpenRouter / Gemini | Working |
-| Face Recognition | "Who is in front of me?" | AWS Rekognition (multi-face) | Working |
-| Face Enrollment | "Enroll this person" | AWS Rekognition | Working |
-| Find Object | "Find my keys" | OpenRouter / Gemini | Working |
-| Currency Recognition | "Count money" | OpenRouter / Gemini | Working |
-| Visual Question Answering | Any question | OpenRouter / Gemini | Working |
-| Color Detection | "What color is this?" | OpenRouter / Gemini | Working |
-
-All features use real AI backends. Vision tasks use Google Gemini 2.5 Flash Lite via OpenRouter (configurable via `VISION_MODEL` and `CLASSIFICATION_MODEL` env vars). Face recognition uses AWS Rekognition with persistent storage. Multi-face detection identifies all people in frame, and scene descriptions integrate face recognition to mention known contacts by name.
-
-### Recent Improvements
-
-- Command handlers refactored to use `AbstractCommandHandler` base class (reduces boilerplate)
-- Photo capture now has a 5-second timeout to prevent hangs
-- Pre-capture photo is properly awaited with a 3-second timeout
-- LLM intent classification timeout reduced from 3s to 2s for faster routing
-- Vision API calls now include explicit `max_tokens` limits for predictable response sizes
-- Dead code cleanup (~400 lines removed)
-
-## Companion App (Webview)
-
-The companion app is served at `/webview` — a 4-tab SPA with dark navy theme:
-
-- **Home** — connection status, battery level, voice commands reference
-- **Contacts** — search, view, rename, and delete enrolled faces with photo cards
-- **Activity** — color-coded rolling log of voice commands and system events
-- **Settings** — speech speed, volume, voice preset, and language (Arabic/English with RTL)
-
-Settings are applied in real time to all TTS output.
-
-## Controls
-
-| Input | Action |
-|-------|--------|
-| Forward swipe | Activate listening mode (~10s window) |
-| Backward swipe | Repeat last response |
-| Left — Short press | Interrupt current operation + re-listen |
-| Left — Long press | Repeat last response |
-| Right/Camera | Reserved (native camera hardware) |
-
-The app uses a **swipe-to-command** model: swipe forward to start listening, speak your command, and the AI processes it. No wake word needed.
+| Feature | AI Backend |
+|---------|------------|
+| Scene summarization (with face recognition) | OpenRouter / Gemini + AWS Rekognition |
+| OCR / read text | OpenRouter / Gemini |
+| Face recognition (multi-face) + enrollment | AWS Rekognition |
+| Find object · Currency · Color · Visual Q&A | OpenRouter / Gemini |
+| Speech-to-text · Text-to-speech | ElevenLabs (Scribe STT · TTS) |
 
 ## Project Structure
 
 ```
 suhail/
 ├── src/
-│   ├── index.ts                        # Entry point
-│   ├── app.ts                          # Main AppServer — sessions, routing, listening mode, mini app API
-│   ├── commands/
-│   │   ├── base-command.ts             # AbstractCommandHandler base class
-│   │   ├── command-router.ts           # LLM intent classification + keyword fallback
-│   │   ├── scene-summarize.ts          # Scene description with face recognition
-│   │   ├── ocr-read-text.ts            # Text reading (OCR via vision LLM)
-│   │   ├── face-recognize.ts           # Multi-face identification
-│   │   ├── face-enroll.ts              # Face enrollment (stateful 2-step)
-│   │   ├── find-object.ts              # Object location
-│   │   ├── currency-recognize.ts       # Currency identification
-│   │   ├── visual-qa.ts                # Visual Q&A (fallback)
-│   │   └── color-detect.ts             # Color detection
+│   ├── index.ts                        # Bootstrap: build app, startup probes, listen(PORT)
+│   ├── server.ts                       # buildApp() — Express app + /health + route mounts
+│   ├── relay/
+│   │   ├── routes.ts                   # POST /api/* relay endpoints + photo-upload webhook
+│   │   ├── auth.ts                     # HMAC-Bearer auth middleware
+│   │   ├── faces.ts                    # GET/PUT/DELETE /api/faces* (face management)
+│   │   └── command-router.ts           # LLM intent classification + keyword fallback
 │   ├── services/
-│   │   ├── ai-handler.ts               # Unified AI service facade
 │   │   ├── vision-service.ts           # Vision LLM calls (OpenRouter / Gemini)
-│   │   ├── ocr-service.ts              # OCR — delegates to vision service
-│   │   ├── face-service.ts             # Face recognition (AWS Rekognition + local storage)
-│   │   ├── tts-service.ts              # Text-to-speech helper
-│   │   └── settings-store.ts           # Global settings store (speed, volume, voice, language)
+│   │   ├── face-service.ts             # Face recognition/enrollment (AWS Rekognition + local storage)
+│   │   ├── elevenlabs-tts.ts           # ElevenLabs TTS for /api/tts
+│   │   ├── elevenlabs-stt.ts           # ElevenLabs Scribe STT for /api/stt
+│   │   ├── photo-cache.ts              # In-memory token store for the BLE photo flow
+│   │   └── openrouter-status.ts        # Startup probe of OpenRouter /credits
 │   ├── utils/
 │   │   ├── config.ts                   # Environment config
-│   │   ├── logger.ts                   # Logging utility
-│   │   ├── image-utils.ts              # Image processing helpers (capture, crop)
-│   │   ├── transcription-filter.ts     # Validates transcriptions (rejects garbled text)
-│   │   └── transcription-normalizer.ts # Script normalization via LLM
+│   │   ├── logger.ts                   # Tag-prefixed logger
+│   │   ├── image-utils.ts              # cropFace() for multi-face recognition
+│   │   ├── transcription-filter.ts     # stripAnnotations() + validation
+│   │   └── transcription-normalizer.ts # Arabic-script English → Latin (LLM)
 │   └── types/
 │       └── index.ts                    # Shared TypeScript types
-├── data/faces/                         # Persistent face data (metadata + photos)
-├── models/                             # Face.js ML model weights
-├── landing/                            # React + Vite landing page
-├── public/                             # Companion app (4-tab SPA)
+├── data/faces/                         # Persistent face data (metadata + photos) — gitignored
+├── mobile/                             # React Native / Expo BLE app (own README/CLAUDE.md)
+├── landing/                            # React + Vite marketing site (standalone; not served here)
 ├── .env.example
-├── .gitignore
 ├── package.json
-├── tsconfig.json
-└── README.md
+└── tsconfig.json
 ```
 
 ## Architecture
 
-The app runs as a **server-side TypeScript application** using the MentraOS SDK:
+```
+BLE mobile app (over Wi-Fi/HTTP, HMAC-authed)
+  → POST /api/stt        (audio → text)
+  → POST /api/normalize + POST /api/intent   (text → {command, params})
+  → POST /api/vision/* or /api/faces/*        (image → result)
+  → POST /api/tts        (text → audio bytes, played through the glasses)
+```
 
-1. Mentra Live glasses connect to the user's phone via the Mentra app
-2. The phone connects to this server via WebSocket through the Mentra Relay
-3. The server receives events (voice transcriptions, button presses, photos)
-4. The server processes requests through AI services and speaks results back
-
-All output is through **audio only** — the Mentra Live has no display.
+The server is a plain Express app: `index.ts` builds it via `server.ts`, runs startup probes (`loadPersistedFaces`, `probeOpenRouterStatus`), and listens. Relay handlers call the `vision`/`face`/`elevenlabs`/`command-router`/`photo-cache` services directly.

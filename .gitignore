@@ -5,7 +5,9 @@ dist/
 .DS_Store
 bun.lock
 data/
-public/cues/
+
+# TypeScript incremental build caches
+**/*.tsbuildinfo
 
 venv/
 .claude/
