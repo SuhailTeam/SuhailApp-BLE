@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, type ReactElement, type ReactNode } from "react";
 import { MMKV } from "react-native-mmkv";
 import {
   useMentraBluetooth,
@@ -59,8 +59,9 @@ export function useSuhailBluetooth(): MentraBluetoothSession {
  * observed through the React `useMentraBluetooth` session. This tiny store lets
  * the non-React modules — the camera capture flow and the listening state
  * machine — read connectivity and react to drops without re-rendering. The
- * React layer (HomeScreen) mirrors `session.glasses.connected` into it on every
- * change via {@link setGlassesConnected}.
+ * always-mounted {@link BluetoothSessionProvider} mirrors
+ * `session.glasses.connected` into it on every change via {@link setGlassesConnected},
+ * so the flag is accurate regardless of which tab is on screen.
  */
 let glassesConnected = false;
 const disconnectListeners = new Set<() => void>();
@@ -100,4 +101,37 @@ export function setGlassesConnected(next: boolean): void {
       }
     }
   }
+}
+
+/* ── Shared session provider (single hook instance, always mounted) ───────── */
+
+const BluetoothSessionContext = createContext<MentraBluetoothSession | null>(null);
+
+/**
+ * Provides ONE `useSuhailBluetooth()` session to the whole app and mirrors its
+ * connection state into the imperative store on every change. Mount once at the
+ * app root (above the navigator) so:
+ *   - the camera capture flow + listening state machine always see an accurate
+ *     `isGlassesConnected()` regardless of which tab is on screen (HomeScreen
+ *     used to own this, but it only mirrored while it was the active screen);
+ *   - there's a single SDK session — two `useSuhailBluetooth()` instances would
+ *     each run `autoConnectDefault` and fight over the connection.
+ *
+ * Uses `createElement` (not JSX) so this stays a `.ts` module.
+ */
+export function BluetoothSessionProvider({ children }: { children: ReactNode }): ReactElement {
+  const session = useSuhailBluetooth();
+  useEffect(() => {
+    setGlassesConnected(session.glasses.connected);
+  }, [session.glasses.connected]);
+  return createElement(BluetoothSessionContext.Provider, { value: session }, children);
+}
+
+/** Consume the shared glasses session. Throws if used outside the provider. */
+export function useBluetoothSession(): MentraBluetoothSession {
+  const ctx = useContext(BluetoothSessionContext);
+  if (ctx === null) {
+    throw new Error("useBluetoothSession must be used within <BluetoothSessionProvider>");
+  }
+  return ctx;
 }
