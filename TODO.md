@@ -30,9 +30,8 @@ glasses (Mentra Live)  ←BLE→  mobile (RN/Expo, iOS verified)  ←HTTPS→  R
 
 ## Tier 1 — Demo-stage critical (the only things that could embarrass you live)
 
-- [ ] **Onboarding wizard for first-launch pairing.** New users get dropped into Home with a "Scan for glasses" button. A 30s guided flow (welcome → permission grants → pair → done) matters for non-Suhail-team users. Touch points:
-  - Add `mobile/src/screens/OnboardingScreen.tsx`
-  - Check a `hasOnboarded` flag from MMKV at app boot, redirect
+- [x] **Complete UI overhaul + WCAG 2.1 accessibility** (`feature/ui-overhaul`) — centralized theme (`mobile/src/theme/`, dark + high-contrast modes), shared component primitives (`mobile/src/components/`), full screen-reader support (roles/labels/state, `announceForAccessibility`, adjustable steppers), AA/AAA contrast + ≥44px touch targets, in-app text scaling, real RTL via `I18nManager`, Ionicons tabs, and the Suhail logo as the app icon/splash (`scripts/make-icons.ts`). All four screens rebuilt; voice/BLE/listening logic untouched.
+- [x] **Onboarding wizard for first-launch pairing** (part of `feature/ui-overhaul`) — `mobile/src/screens/OnboardingScreen.tsx`, a 4-step accessible flow (welcome → permissions explainer → scan & pair → done) with a "Skip for now" path. Gated at boot on a `hasOnboarded` MMKV flag (`mobile/src/state/onboarding.ts`); the root native-stack shows Onboarding vs Main accordingly.
 
 - [ ] **Sub-5s latency** (plan target was ≤5s; we're at ~6-10s). Biggest remaining levers:
   - **TTS streaming server→mobile**: ~500-800ms shaved. Server pipes ElevenLabs `/stream` bytes through to the mobile player as they arrive. ~2 hours. See PR #8 for the architectural notes.

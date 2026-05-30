@@ -8,6 +8,15 @@ const config: ExpoConfig = {
   scheme: "suhail",
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
+  // Brand mark (white star + orbital ring) baked onto the brand navy. iOS icons
+  // must be opaque, so icon.png has no transparency. Regenerate with
+  // `bun mobile/scripts/make-icons.ts`.
+  icon: "./assets/icon.png",
+  splash: {
+    image: "./assets/splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#020617",
+  },
   ios: {
     bundleIdentifier: "com.suhail.assistant.ble",
     supportsTablet: false,

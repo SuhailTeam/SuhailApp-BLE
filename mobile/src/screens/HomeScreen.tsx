@@ -1,21 +1,26 @@
-import React, { useCallback } from "react";
-import { StyleSheet, Text, View, ScrollView, Pressable, ActivityIndicator } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { AccessibilityInfo, ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
+import { AppButton, Card, SectionHeader, Screen, StatusDot } from "../components";
+import { makeStyles, useTheme } from "../theme";
+import { ui, useUi } from "../i18n/ui";
 import { useBluetoothSession } from "../ble/connection";
 import { useBatteryStatus, useButtonPress, useTouchEvent } from "../ble/events";
 import { useActivity } from "../state/activity";
-import { useSettings } from "../state/settings";
 import { activate, interruptAndListen, repeatLast, useListening } from "../state/listening";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("HomeScreen");
 
-export default function HomeScreen() {
+export default function HomeScreen(): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { t, lang } = useUi();
   const session = useBluetoothSession();
-  const language = useSettings((s) => s.language);
   const logEvent = useActivity((s) => s.log);
 
+  // ── Listening wiring (preserved verbatim from the pre-overhaul HomeScreen) ──
   // Buttons + swipes drive the listening state machine.
   // Battery events stay in the activity log for debugging.
   useButtonPress(useCallback((event) => {
@@ -45,58 +50,28 @@ export default function HomeScreen() {
   }, [logEvent]));
 
   const listeningState = useListening((s) => s.state);
-
   const isConnected = session.glasses.connected;
-  const stateLabel = session.glasses.connection.state;
-
   // Connection state is mirrored into the imperative store by the always-mounted
-  // BluetoothSessionProvider (App root), so the camera/listening modules see an
+  // BluetoothSessionProvider (App root) — the camera/listening modules see an
   // accurate flag regardless of which tab is active.
 
-  const labels = language === "ar"
-    ? {
-        connected: "متصل",
-        disconnected: "غير متصل",
-        connecting: "جاري الاتصال...",
-        scan: "ابحث عن النظارة",
-        connect: "اتصل بالنظارة المحفوظة",
-        disconnect: "اقطع الاتصال",
-        forget: "انسَ النظارة",
-        battery: "البطارية",
-        firmware: "البرنامج الثابت",
-        commandsTitle: "الأوامر الصوتية",
-        commandsBody: "اسحب للأمام على النظارة، ثم تكلم: «صف ما حولي»، «اقرأ»، «من هذا؟»، «ابحث عن مفاتيحي»، «عدّ النقود»، «اللون».",
-        testListening: "جرب الاستماع",
-        testRepeat: "كرر آخر رد",
-        listenIdle: "خامل",
-        listenActive: "ينصت",
-        listenProcessing: "يعالج",
-      }
-    : {
-        connected: "Connected",
-        disconnected: "Disconnected",
-        connecting: "Connecting…",
-        scan: "Scan for glasses",
-        connect: "Connect to saved glasses",
-        disconnect: "Disconnect",
-        forget: "Forget glasses",
-        battery: "Battery",
-        firmware: "Firmware",
-        commandsTitle: "Voice commands",
-        commandsBody:
-          "Swipe forward on the glasses, then speak: \"describe my surroundings\", \"read this\", \"who is this?\", \"find my keys\", \"count money\", \"color\".",
-        testListening: "Test listening",
-        testRepeat: "Repeat last",
-        listenIdle: "idle",
-        listenActive: "listening",
-        listenProcessing: "processing",
-      };
+  // ── Accessibility announcements (additive — never the only feedback) ────────
+  const prevConnected = useRef(isConnected);
+  useEffect(() => {
+    if (prevConnected.current !== isConnected) {
+      AccessibilityInfo.announceForAccessibility(isConnected ? ui.a11y.connected[lang] : ui.a11y.disconnected[lang]);
+      prevConnected.current = isConnected;
+    }
+  }, [isConnected, lang]);
 
-  const listenLabel = listeningState === "active"
-    ? labels.listenActive
-    : listeningState === "processing"
-      ? labels.listenProcessing
-      : labels.listenIdle;
+  const prevListen = useRef(listeningState);
+  useEffect(() => {
+    if (prevListen.current !== listeningState) {
+      if (listeningState === "active") AccessibilityInfo.announceForAccessibility(ui.a11y.listening[lang]);
+      else if (listeningState === "processing") AccessibilityInfo.announceForAccessibility(ui.a11y.processing[lang]);
+      prevListen.current = listeningState;
+    }
+  }, [listeningState, lang]);
 
   const onScan = useCallback(async () => {
     try {
@@ -130,148 +105,123 @@ export default function HomeScreen() {
     }
   }, [session]);
 
+  const statusText = isConnected ? t(ui.home.connected) : session.busy ? t(ui.home.connecting) : t(ui.home.disconnected);
+  const listenLabel =
+    listeningState === "active" ? t(ui.home.listenActive) : listeningState === "processing" ? t(ui.home.listenProcessing) : t(ui.home.listenIdle);
+
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={[styles.statusCard, isConnected ? styles.cardOk : styles.cardWarn]}>
-          <Text style={styles.statusLabel}>
-            {isConnected ? labels.connected : session.busy ? labels.connecting : labels.disconnected}
-          </Text>
-          <Text style={styles.statusSub}>state: {stateLabel}</Text>
-          {session.defaultDevice && (
-            <Text style={styles.statusSub}>device: {session.defaultDevice.name}</Text>
-          )}
+    <Screen scroll>
+      {/* Connection hero */}
+      <Card tone={isConnected ? "ok" : "warn"}>
+        <View style={styles.heroRow}>
+          <Ionicons
+            name={isConnected ? "checkmark-circle" : "alert-circle"}
+            size={28}
+            color={isConnected ? theme.colors.successText : theme.colors.warningText}
+          />
+          <View style={styles.heroText}>
+            <Text style={styles.statusLabel}>{statusText}</Text>
+            {session.defaultDevice ? (
+              <Text style={styles.statusSub}>{t(ui.home.device)}: {session.defaultDevice.name}</Text>
+            ) : null}
+          </View>
+          {session.busy ? <ActivityIndicator color={theme.colors.accent} /> : null}
         </View>
 
-        {session.glasses.connected && (
-          <View style={styles.infoRow}>
+        {isConnected ? (
+          <View style={styles.batteryRow}>
+            <Ionicons name="battery-half-outline" size={18} color={theme.colors.textSecondary} />
             <Text style={styles.info}>
-              {labels.battery}: {session.glasses.battery.level ?? "—"}%
-              {session.glasses.battery.charging ? " ⚡" : ""}
+              {t(ui.home.battery)}: {session.glasses.battery.level ?? "—"}%
             </Text>
-            {session.glasses.firmware.version && (
-              <Text style={styles.info}>{labels.firmware}: {session.glasses.firmware.version}</Text>
-            )}
+            {session.glasses.battery.charging ? (
+              <View style={styles.inline}>
+                <Ionicons name="flash" size={16} color={theme.colors.warningText} />
+                <Text style={styles.info}>{t(ui.home.charging)}</Text>
+              </View>
+            ) : null}
+            {session.glasses.firmware.version ? (
+              <Text style={styles.infoMuted}>{t(ui.home.firmware)}: {session.glasses.firmware.version}</Text>
+            ) : null}
           </View>
-        )}
+        ) : null}
+      </Card>
 
-        <View style={styles.actions}>
-          <ActionButton label={labels.scan} onPress={onScan} disabled={session.busy} />
-          <ActionButton label={labels.connect} onPress={onConnectDefault} disabled={session.busy || !session.defaultDevice} />
-          {isConnected && <ActionButton label={labels.disconnect} onPress={onDisconnect} disabled={session.busy} variant="warn" />}
-          {session.defaultDevice && <ActionButton label={labels.forget} onPress={onForget} disabled={session.busy} variant="danger" />}
+      {/* Connection actions */}
+      <View style={styles.actions}>
+        <AppButton iconName="search" label={t(ui.home.scan)} onPress={onScan} disabled={session.busy} />
+        <AppButton
+          iconName="link"
+          variant="secondary"
+          label={t(ui.home.connect)}
+          onPress={onConnectDefault}
+          disabled={session.busy || !session.defaultDevice}
+        />
+        {isConnected ? (
+          <AppButton iconName="close-circle" variant="warn" label={t(ui.home.disconnect)} onPress={onDisconnect} disabled={session.busy} />
+        ) : null}
+        {session.defaultDevice ? (
+          <AppButton iconName="trash-outline" variant="danger" label={t(ui.home.forget)} onPress={onForget} disabled={session.busy} />
+        ) : null}
+      </View>
+
+      {/* Scan results */}
+      {session.scan.devices.length > 0 ? (
+        <Card>
+          <SectionHeader title={`${t(ui.home.found)} (${session.scan.devices.length})`} />
+          {session.scan.devices.map((d) => (
+            <AppButton
+              key={d.id}
+              variant="secondary"
+              iconName="glasses-outline"
+              label={d.name}
+              onPress={() => session.connect(d, { saveAsDefault: true })}
+            />
+          ))}
+        </Card>
+      ) : null}
+
+      {/* Listening status */}
+      <Card>
+        <SectionHeader title={t(ui.home.listenTitle)} />
+        <View style={styles.listenRow}>
+          <StatusDot state={listeningState} />
+          <Text style={styles.listenText}>{listenLabel}</Text>
         </View>
-
-        {session.busy && <ActivityIndicator color="#38BDF8" style={{ marginTop: 16 }} />}
-
-        <View style={styles.listenCard}>
-          <View style={styles.listenRow}>
-            <View style={[styles.listenDot, listenDotStyle(listeningState)]} />
-            <Text style={styles.listenText}>{listenLabel}</Text>
+        <View style={styles.listenButtons}>
+          <View style={styles.flex1}>
+            <AppButton variant="secondary" iconName="mic-outline" label={t(ui.home.testListening)} onPress={() => void activate()} />
           </View>
-          <View style={styles.listenButtons}>
-            <Pressable style={styles.listenBtn} onPress={() => void activate()}>
-              <Text style={styles.listenBtnText}>{labels.testListening}</Text>
-            </Pressable>
-            <Pressable style={styles.listenBtn} onPress={() => void repeatLast()}>
-              <Text style={styles.listenBtnText}>{labels.testRepeat}</Text>
-            </Pressable>
+          <View style={styles.flex1}>
+            <AppButton variant="secondary" iconName="refresh" label={t(ui.home.testRepeat)} onPress={() => void repeatLast()} />
           </View>
         </View>
+      </Card>
 
-        {session.scan.devices.length > 0 && (
-          <View style={styles.scanResults}>
-            <Text style={styles.scanTitle}>
-              {language === "ar" ? "النتائج" : "Found"} ({session.scan.devices.length})
-            </Text>
-            {session.scan.devices.map((d) => (
-              <Pressable
-                key={d.id}
-                style={styles.deviceRow}
-                onPress={() => session.connect(d, { saveAsDefault: true })}
-              >
-                <Text style={styles.deviceName}>{d.name}</Text>
-                {d.rssi !== undefined && <Text style={styles.deviceMeta}>rssi: {d.rssi} dBm</Text>}
-              </Pressable>
-            ))}
-          </View>
-        )}
-
-        <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>{labels.commandsTitle}</Text>
-          <Text style={styles.tipsBody}>{labels.commandsBody}</Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      {/* Voice commands reference */}
+      <Card>
+        <SectionHeader title={t(ui.home.commandsTitle)} />
+        <Text style={styles.tipsBody}>{t(ui.home.commandsBody)}</Text>
+      </Card>
+    </Screen>
   );
 }
 
-function ActionButton({
-  label,
-  onPress,
-  disabled,
-  variant = "primary",
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  variant?: "primary" | "warn" | "danger";
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.btn,
-        variant === "warn" && styles.btnWarn,
-        variant === "danger" && styles.btnDanger,
-        disabled && styles.btnDisabled,
-        pressed && !disabled && styles.btnPressed,
-      ]}
-    >
-      <Text style={styles.btnText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#020617" },
-  container: { padding: 20, gap: 16 },
-  statusCard: { padding: 20, borderRadius: 16, borderWidth: 1 },
-  cardOk: { backgroundColor: "#052e1a", borderColor: "#16a34a" },
-  cardWarn: { backgroundColor: "#1c1917", borderColor: "#a16207" },
-  statusLabel: { color: "#F8FAFC", fontSize: 22, fontWeight: "700" },
-  statusSub: { color: "#94A3B8", marginTop: 4, fontSize: 13 },
-  infoRow: { flexDirection: "row", gap: 16, paddingHorizontal: 4 },
-  info: { color: "#CBD5E1", fontSize: 14 },
-  actions: { gap: 12 },
-  btn: { backgroundColor: "#0284C7", paddingVertical: 14, borderRadius: 12, alignItems: "center" },
-  btnPressed: { opacity: 0.8 },
-  btnDisabled: { backgroundColor: "#334155", opacity: 0.6 },
-  btnWarn: { backgroundColor: "#A16207" },
-  btnDanger: { backgroundColor: "#991B1B" },
-  btnText: { color: "#F8FAFC", fontSize: 16, fontWeight: "600" },
-  scanResults: { backgroundColor: "#0F172A", padding: 12, borderRadius: 12, borderColor: "#1E293B", borderWidth: 1, gap: 6 },
-  scanTitle: { color: "#94A3B8", fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 },
-  deviceRow: { paddingVertical: 8, paddingHorizontal: 8, borderRadius: 8, backgroundColor: "#1E293B" },
-  deviceName: { color: "#F8FAFC", fontSize: 15, fontWeight: "500" },
-  deviceMeta: { color: "#64748B", fontSize: 12, marginTop: 2 },
-  tipsCard: { backgroundColor: "#0F172A", padding: 16, borderRadius: 12, borderColor: "#1E293B", borderWidth: 1, marginTop: 8 },
-  tipsTitle: { color: "#F8FAFC", fontSize: 16, fontWeight: "600", marginBottom: 6 },
-  tipsBody: { color: "#94A3B8", fontSize: 14, lineHeight: 20 },
-  listenCard: { backgroundColor: "#0F172A", padding: 14, borderRadius: 12, borderColor: "#1E293B", borderWidth: 1, gap: 10 },
-  listenRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  listenDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#475569" },
-  listenDotActive: { backgroundColor: "#38BDF8" },
-  listenDotProcessing: { backgroundColor: "#A78BFA" },
-  listenText: { color: "#CBD5E1", fontSize: 14, fontVariant: ["tabular-nums"] },
-  listenButtons: { flexDirection: "row", gap: 8 },
-  listenBtn: { flex: 1, backgroundColor: "#1E293B", paddingVertical: 10, borderRadius: 8, alignItems: "center" },
-  listenBtnText: { color: "#F8FAFC", fontSize: 13, fontWeight: "500" },
-});
-
-function listenDotStyle(state: "idle" | "active" | "processing") {
-  if (state === "active") return styles.listenDotActive;
-  if (state === "processing") return styles.listenDotProcessing;
-  return undefined;
-}
+const createStyles = makeStyles((t) =>
+  StyleSheet.create({
+    heroRow: { flexDirection: "row", alignItems: "center", gap: t.spacing.md },
+    heroText: { flex: 1, gap: 2 },
+    statusLabel: { color: t.colors.textPrimary, fontSize: t.type.title.fontSize, lineHeight: t.type.title.lineHeight, fontWeight: t.type.title.fontWeight },
+    statusSub: { color: t.colors.textSecondary, fontSize: t.type.caption.fontSize, lineHeight: t.type.caption.lineHeight },
+    batteryRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: t.spacing.md, marginTop: t.spacing.xs },
+    inline: { flexDirection: "row", alignItems: "center", gap: t.spacing.xs },
+    info: { color: t.colors.textSecondary, fontSize: t.type.body.fontSize },
+    infoMuted: { color: t.colors.textMuted, fontSize: t.type.caption.fontSize },
+    actions: { gap: t.spacing.md },
+    listenRow: { flexDirection: "row", alignItems: "center", gap: t.spacing.sm },
+    listenText: { color: t.colors.textSecondary, fontSize: t.type.body.fontSize, fontVariant: ["tabular-nums"] },
+    listenButtons: { flexDirection: "row", gap: t.spacing.sm, marginTop: t.spacing.xs },
+    flex1: { flex: 1 },
+    tipsBody: { color: t.colors.textSecondary, fontSize: t.type.body.fontSize, lineHeight: t.type.body.lineHeight },
+  }),
+);
