@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { routeCommand, routeCommandByKeyword } from "../../src/commands/command-router";
+import { matchKeywordCommand, routeCommand, routeCommandByKeyword } from "../../src/relay/command-router";
 import { config } from "../../src/utils/config";
 
 const originalFetch = globalThis.fetch;
@@ -31,14 +31,19 @@ describe("hybrid intent router (decision table from Section 13.2.4)", () => {
     expect(result?.params?.objectName).toBe("keys");
   });
 
-  test("R2 falls back to keyword routing when LLM content is unparseable", async () => {
+  test("explicit keyword commands take the fast path before LLM classification", async () => {
     (config as any).openRouterApiKey = "test-key";
-    setClassifierResponse("not json");
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      throw new Error("should not call classifier for keyword fast path");
+    }) as typeof fetch;
 
     const result = await routeCommand("read this sign");
 
     expect(result?.command).toBe("ocr-read-text");
     expect(result?.params?.context).toBe("read this sign");
+    expect(fetchCalled).toBe(false);
   });
 
   test("R3 falls back to visual QA when neither LLM nor keyword identifies a curated command", async () => {
@@ -51,13 +56,13 @@ describe("hybrid intent router (decision table from Section 13.2.4)", () => {
     expect(result?.params?.question).toBe("is the cup full");
   });
 
-  test("R4 uses keyword routing when the LLM request fails", async () => {
+  test("R4 defaults to visual QA when the LLM request fails and no keyword matches", async () => {
     (config as any).openRouterApiKey = "test-key";
     setClassifierResponse("", false);
 
-    const result = await routeCommand("money in my hand");
+    const result = await routeCommand("how many cups are here");
 
-    expect(result?.command).toBe("currency-recognize");
+    expect(result?.command).toBe("visual-qa");
   });
 
   test("R5 defaults to visual QA when LLM is unavailable and no keyword matches", async () => {
@@ -81,13 +86,13 @@ describe("hybrid intent router (decision table from Section 13.2.4)", () => {
 
 describe("keyword router partitions", () => {
   test("matches curated English and Arabic trigger words directly", () => {
-    expect(routeCommandByKeyword("read this")?.command).toBe("ocr-read-text");
-    expect(routeCommandByKeyword("اقرأ النص")?.command).toBe("ocr-read-text");
-    expect(routeCommandByKeyword("وين المفاتيح")?.command).toBe("find-object");
+    expect(matchKeywordCommand("read this")?.command).toBe("ocr-read-text");
+    expect(matchKeywordCommand("اقرأ النص")?.command).toBe("ocr-read-text");
+    expect(matchKeywordCommand("وين المفاتيح")?.command).toBe("find-object");
   });
 
   test("extracts find-object params and defaults unknown keywords to visual QA", () => {
-    expect(routeCommandByKeyword("find wallet")?.params?.objectName).toBe("wallet");
+    expect(matchKeywordCommand("find wallet")?.params?.objectName).toBe("wallet");
     expect(routeCommandByKeyword("is this door open")?.command).toBe("visual-qa");
   });
 });

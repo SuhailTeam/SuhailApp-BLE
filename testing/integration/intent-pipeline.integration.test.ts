@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { routeCommand } from "../../src/commands/command-router";
+import { routeCommand } from "../../src/relay/command-router";
 import { isValidTranscription, stripAnnotations } from "../../src/utils/transcription-filter";
 import { normalizeTranscription } from "../../src/utils/transcription-normalizer";
 import { config } from "../../src/utils/config";

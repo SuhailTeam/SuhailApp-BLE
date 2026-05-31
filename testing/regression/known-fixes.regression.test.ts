@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { routeCommand } from "../../src/commands/command-router";
+import { routeCommand } from "../../src/relay/command-router";
 import { evict, getBytes, mintToken, storeBytes, waitForBytes } from "../../src/services/photo-cache";
 import { decodeExternalImageId, encodeExternalImageId } from "../../src/utils/external-image-id";
 import { stripAnnotations } from "../../src/utils/transcription-filter";
