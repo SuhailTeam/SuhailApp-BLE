@@ -69,6 +69,21 @@ function cleanJSON(raw: string): string {
   return raw.replace(/```json/g, "").replace(/```/g, "").trim();
 }
 
+export function parseColorResponse(raw: string, language: Language): { colorName: string; hex: string } {
+  try {
+    const parsed = JSON.parse(cleanJSON(raw) || "{}");
+    return {
+      colorName: parsed.colorName || (language === "ar" ? "غير معروف" : "unknown"),
+      hex: parsed.hex || "#000000",
+    };
+  } catch {
+    return {
+      colorName: language === "ar" ? "غير معروف" : "unknown",
+      hex: "#000000",
+    };
+  }
+}
+
 /* ── Exported vision functions ───────────────────────────── */
 
 /**
@@ -130,7 +145,7 @@ export async function answerVisualQuestion(
  * Defensive: malformed or empty responses become an empty result, never throws.
  * Groups bills by currency, picks the largest-total currency as dominant.
  */
-function parseCurrencyResponse(raw: string): CurrencyResult {
+export function parseCurrencyResponse(raw: string): CurrencyResult {
   let parsed: any;
   try {
     parsed = JSON.parse(cleanJSON(raw) || "{}");
@@ -318,11 +333,7 @@ export async function detectColor(imageBase64: string, language?: Language): Pro
       imageBase64,
       maxTokens: 80,
     });
-    const parsed = JSON.parse(cleanJSON(raw) || "{}");
-    return {
-      colorName: parsed.colorName || (lang === "ar" ? "غير معروف" : "unknown"),
-      hex: parsed.hex || "#000000",
-    };
+    return parseColorResponse(raw, lang);
   } catch (error) {
     logger.error("Failed to detect color via OpenRouter API", error);
     throw error;

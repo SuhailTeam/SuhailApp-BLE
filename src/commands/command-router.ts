@@ -68,7 +68,7 @@ const commandMap: Array<{ words: string[]; command: CommandType }> = [
  * Keyword-based command routing (fallback).
  * Matches the first word of the transcription against known trigger words.
  */
-function routeCommandByKeyword(transcription: string): RouteResult | null {
+export function routeCommandByKeyword(transcription: string): RouteResult | null {
   const text = transcription.toLowerCase().trim();
   if (text.length === 0) return null;
 

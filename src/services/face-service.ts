@@ -14,6 +14,7 @@ import {
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import { cropFace } from "../utils/image-utils";
+import { decodeExternalImageId, encodeExternalImageId } from "../utils/external-image-id";
 import type { FaceRecognitionResult, MultiFaceResult, FaceMatch } from "../types";
 
 const logger = new Logger("FaceService");
@@ -24,14 +25,10 @@ const rekognition = new RekognitionClient({ region });
 let collectionReadyPromise: Promise<void> | null = null;
 
 /** Encode a name to an ASCII-safe ExternalImageId (hex of UTF-8 bytes). */
-function encodeName(name: string): string {
-  return Buffer.from(name, "utf8").toString("hex");
-}
+export const encodeName = encodeExternalImageId;
 
 /** Decode a hex-encoded ExternalImageId back to the original name. */
-function decodeName(encoded: string): string {
-  return Buffer.from(encoded, "hex").toString("utf8");
-}
+export const decodeName = decodeExternalImageId;
 
 function getSimilarityThreshold(): number {
   const threshold = Number.isFinite(config.confidenceThreshold) ? config.confidenceThreshold : 0.5;

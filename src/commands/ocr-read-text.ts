@@ -2,10 +2,7 @@ import type { AppSession } from "@mentra/sdk";
 import { speak, speakBilingual } from "../services/tts-service";
 import { getSettings } from "../services/settings-store";
 import { AbstractCommandHandler } from "./base-command";
-
-const OCR_MAX_CHARS = 400;
-
-const truncationSuffix = { ar: " وغيره. اسحب للأمام للإيقاف.", en: " ...and more. Swipe forward to stop." };
+import { formatOcrSpeech } from "../utils/ocr-format";
 
 /**
  * OCR / Read Text command.
@@ -35,11 +32,7 @@ export class OcrReadTextCommand extends AbstractCommandHandler {
       return;
     }
 
-    // Long OCR results can lock the user into 30s+ of dictation. Cap to keep the
-    // response actionable; user can swipe forward at any time to stop and retry.
-    const spoken = result.length > OCR_MAX_CHARS
-      ? result.slice(0, OCR_MAX_CHARS).trim() + truncationSuffix[getSettings().language]
-      : result;
+    const spoken = formatOcrSpeech(result, getSettings().language);
 
     await speak(session, spoken, sessionId);
   }
