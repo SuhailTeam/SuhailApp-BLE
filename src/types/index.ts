@@ -1,9 +1,7 @@
-import type { AppSession } from "@mentra/sdk";
-
 /** Supported languages */
 export type Language = "ar" | "en";
 
-/** Command types available in the app */
+/** Command types the relay can route an utterance to */
 export type CommandType =
   | "scene-summarize"
   | "ocr-read-text"
@@ -41,12 +39,6 @@ export interface RouteResult {
   rawText: string;
 }
 
-/** Interface all command handlers must implement */
-export interface CommandHandler {
-  /** Execute the command for a given session */
-  execute(session: AppSession, params?: Record<string, string>): Promise<void>;
-}
-
 /** Vision API response */
 export interface VisionResponse {
   description: string;
@@ -73,20 +65,6 @@ export interface MultiFaceResult {
   totalDetected: number;
 }
 
-/** Face enrollment data stored in memory */
-export interface FaceRecord {
-  name: string;
-  descriptor: number[];
-}
-
-/** Object detection result */
-export interface ObjectDetectionResult {
-  objectName: string;
-  found: boolean;
-  location: string;
-  confidence: number;
-}
-
 /** A single denomination group within a currency recognition result */
 export interface CurrencyBill {
   denomination: number;
@@ -103,22 +81,3 @@ export interface CurrencyResult {
   otherCurrencies?: Array<{ currency: string; bills: CurrencyBill[]; total: number }>;
   confidence: number;
 }
-
-/** Color detection result */
-export interface ColorResult {
-  colorName: string;
-  hex: string;
-}
-
-/** Button press event types */
-export type ButtonSide = "left" | "right";
-export type PressType = "single" | "long";
-
-/** Bilingual message pair */
-export interface BilingualMessage {
-  ar: string;
-  en: string;
-}
-
-/** Listening session lifecycle states */
-export type ListeningState = "idle" | "active" | "processing";

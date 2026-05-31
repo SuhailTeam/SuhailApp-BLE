@@ -1,13 +1,12 @@
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
-import { getSettings } from "./settings-store";
 import type { VisionResponse, CurrencyResult, CurrencyBill, Language } from "../types";
 
 const logger = new Logger("VisionService");
 
-/** Resolves an optional language override to a concrete value (falls back to current settings). */
+/** Resolves an optional language override to a concrete value (falls back to the configured default). */
 function resolveLanguage(language?: Language): Language {
-  return language ?? getSettings().language;
+  return language ?? config.defaultLanguage;
 }
 
 /** Returns the language instruction for the prompt. */

@@ -49,47 +49,55 @@ export interface CapturedPhoto {
  * rather than waiting out the long-poll.
  */
 /**
- * Resolves a CapturedPhoto from either a pre-capture in flight (started on
- * the user's swipe, before STT+intent finish) OR a fresh capture if the
- * pre-capture isn't ready in time / failed / wasn't started.
+ * Resolves a CapturedPhoto from either a pre-capture in flight (started on the
+ * user's swipe, before STT+intent finish) OR a fresh capture if there was no
+ * pre-capture / it failed.
  *
- * The cloud version uses the same pattern (src/app.ts pre-fires the photo
- * on swipe and races it against handleTranscription) — saves the ~3-5s of
- * photo + BLE upload that would otherwise serialize after intent.
- *
- * `preCaptureWaitMs` caps how long we'll wait for a slow pre-capture before
- * giving up and firing fresh. Default 3000ms matches the cloud value.
+ * IMPORTANT: when a pre-capture is in flight we AWAIT it rather than racing a
+ * fresh capture against a budget. Mentra Live can only service ONE photo at a
+ * time — firing a second `requestPhoto` while the pre-capture is still pending
+ * makes the glasses deliver NEITHER (both server long-polls time out, HTTP 408).
+ * The pre-capture is already bounded by capturePhoto's own racers (BLE-error
+ * fast-fail, disconnect fast-fail, 25s outer timeout), so awaiting it is safe;
+ * we only fall back to a single fresh capture if it actually REJECTS. This keeps
+ * the swipe-time latency win (photo captured in parallel with STT+intent) while
+ * never running two captures at once.
  */
 export async function resolvePhoto(opts: {
   preCapture?: Promise<CapturedPhoto> | null;
   signal?: AbortSignal;
   size?: "small" | "medium" | "large";
   compress?: "none" | "medium" | "heavy";
-  preCaptureWaitMs?: number;
 }): Promise<CapturedPhoto> {
   if (opts.preCapture) {
-    const wait = opts.preCaptureWaitMs ?? 3_000;
-    // Race the pre-capture against a budget. We can't just `await preCapture`
-    // because a slow pre-capture would lock us into its remaining time on top
-    // of itself — better to fire a fresh one in parallel and take whichever
-    // finishes first. Errors swallowed; we fall through to fresh capture.
-    const raceWinner = await Promise.race([
-      opts.preCapture.then(
-        (photo) => ({ kind: "ready" as const, photo }),
-        (err) => ({ kind: "failed" as const, err }),
-      ),
-      new Promise<{ kind: "timeout" }>((resolve) => setTimeout(() => resolve({ kind: "timeout" }), wait)),
-    ]);
-    if (raceWinner.kind === "ready") {
-      logger.info(`using pre-captured photo ${raceWinner.photo.photoToken.slice(0, 8)}...`);
-      return raceWinner.photo;
+    try {
+      const photo = await opts.preCapture;
+      logger.info(`using pre-captured photo ${photo.photoToken.slice(0, 8)}...`);
+      return photo;
+    } catch (err) {
+      logger.info(`pre-capture failed (${err instanceof Error ? err.message : String(err)}) — capturing fresh`);
+      // fall through to a single fresh capture
     }
-    logger.info(`pre-capture ${raceWinner.kind === "failed" ? "failed" : "missed budget"} — capturing fresh`);
   }
   return capturePhoto({ signal: opts.signal, size: opts.size, compress: opts.compress });
 }
 
-export async function capturePhoto(opts: { signal?: AbortSignal; size?: "small" | "medium" | "large"; compress?: "none" | "medium" | "heavy" } = {}): Promise<CapturedPhoto> {
+/**
+ * Module-level single-flight chain: guarantees only ONE BLE photo request is
+ * ever in flight at a time. Two concurrent `requestPhoto` calls make the glasses
+ * deliver neither (both time out), so every capture queues behind the previous
+ * one. A failed/aborted capture doesn't poison the chain (aborted pre-captures
+ * reject promptly via their signal, so the chain drains fast).
+ */
+let captureChain: Promise<unknown> = Promise.resolve();
+
+export function capturePhoto(opts: { signal?: AbortSignal; size?: "small" | "medium" | "large"; compress?: "none" | "medium" | "heavy" } = {}): Promise<CapturedPhoto> {
+  const run = captureChain.then(() => doCapturePhoto(opts), () => doCapturePhoto(opts));
+  captureChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function doCapturePhoto(opts: { signal?: AbortSignal; size?: "small" | "medium" | "large"; compress?: "none" | "medium" | "heavy" } = {}): Promise<CapturedPhoto> {
   const size = opts.size ?? "large";
   const compress = opts.compress ?? "medium";
 
