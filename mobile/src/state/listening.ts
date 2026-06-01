@@ -340,6 +340,7 @@ export async function processTranscription(text: string, confidence: number): Pr
         mark("intent-done");
         logActivity(`routed → ${command}`);
       },
+      onFirstChunkReceived: () => mark("first-chunk-recv"),
       onFirstChunkStart: () => mark("tts-playback-start"),
     });
   } finally {

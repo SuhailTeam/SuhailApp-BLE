@@ -38,6 +38,8 @@ export interface RunStreamedAnswerOpts {
   signal?: AbortSignal;
   /** Fires when the server reports the routed command (for tagTimeline + marks). */
   onRoute?: (command: CommandType, mode: "streamed" | "client") => void;
+  /** Fires the instant the FIRST chunk's bytes are received (before write/play). */
+  onFirstChunkReceived?: () => void;
   /** Fires the instant the FIRST chunk begins playing (the tts-playback-start mark). */
   onFirstChunkStart?: () => void;
 }
@@ -77,7 +79,10 @@ export async function runStreamedAnswer(opts: RunStreamedAnswerOpts): Promise<St
           break;
         case "chunk": {
           const isFirst = chunkCount === 0;
-          if (isFirst) await stopThinkingCue(); // single A2DP stream: cue off before audio on
+          if (isFirst) {
+            opts.onFirstChunkReceived?.();
+            await stopThinkingCue(); // single A2DP stream: cue off before audio on
+          }
           const path = `${FileSystem.cacheDirectory}answer-${chunkCounter++}.${extensionFor(ev.format)}`;
           await FileSystem.writeAsStringAsync(path, ev.audio, { encoding: FileSystem.EncodingType.Base64 });
           tempPaths.push(path);
