@@ -30,6 +30,7 @@ interface QueueItem {
   source: AudioSource;
   volume: number;
   label: string;
+  onStart?: () => void;
   resolve: () => void;
   reject: (reason?: unknown) => void;
 }
@@ -46,13 +47,21 @@ let isProcessing = false;
  * `setOwnAppAudioPlaying` is toggled around playback so the BLE SDK arbitrates
  * mic-vs-speaker correctly (it should attenuate / pause mic capture while we
  * speak).
+ *
+ * `onStart` fires the instant this item begins playing (first audio byte to the
+ * speaker) — used by the latency timeline to capture the "glasses start speaking"
+ * moment. It runs once per item and never throws into the playback path.
  */
-export function play(source: AudioSource, opts: { volume?: number; label?: string } = {}): Promise<void> {
+export function play(
+  source: AudioSource,
+  opts: { volume?: number; label?: string; onStart?: () => void } = {},
+): Promise<void> {
   return new Promise((resolve, reject) => {
     queue.push({
       source,
       volume: opts.volume ?? 1.0,
       label: opts.label ?? "audio",
+      onStart: opts.onStart,
       resolve,
       reject,
     });
@@ -129,6 +138,9 @@ async function processQueue(): Promise<void> {
       // calling play() in any case starts playback.
       try {
         player.play();
+        // First audio byte to the speaker — the "glasses start speaking" moment.
+        // Best-effort: instrumentation must never break playback.
+        try { next.onStart?.(); } catch {}
       } catch (err) {
         sub.remove();
         try { player.remove(); } catch {}
