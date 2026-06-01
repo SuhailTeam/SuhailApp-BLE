@@ -10,6 +10,7 @@ import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import type { Language } from "../types";
 import { relayAuth, warnIfDevAuth } from "./auth";
+import { answerHandler } from "./answer";
 
 const logger = new Logger("RelayRoutes");
 
@@ -181,6 +182,14 @@ export function registerRelayRoutes(expressApp: any): void {
     }
     res.json(result);
   }));
+
+  /* ── /api/answer (merged intent + vision + streamed spoken answer) ─────── */
+  // NDJSON stream. Routes the utterance; for the 3 free-text commands
+  // (scene/ocr/vqa) it streams the vision LLM → per-sentence TTS → audio chunks
+  // so the phone speaks sentence 1 while the rest is still generating. Other
+  // commands return a `route mode:"client"` event and the phone dispatches them
+  // discretely. Registered WITHOUT wrap() — it manages its own streaming errors.
+  router.post("/answer", answerHandler);
 
   /* ── /api/normalize ──────────────────────────────────────────────────── */
 
@@ -398,5 +407,5 @@ export function registerRelayRoutes(expressApp: any): void {
   // already handled above falls through here and gets HMAC-checked.
   expressApp.use("/api", router);
 
-  logger.info("Relay routes registered: /api/intent, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt, /api/photo/{upload-url,upload/:token,wait/:token}");
+  logger.info("Relay routes registered: /api/intent, /api/answer, /api/normalize, /api/vision/*, /api/faces/{recognize,recognize-all,enroll}, /api/tts, /api/stt, /api/photo/{upload-url,upload/:token,wait/:token}");
 }

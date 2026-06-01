@@ -71,7 +71,11 @@ export default function UsabilityTestScreen(): React.ReactElement {
   const taskRows = rows.filter((r) => r.taskLabel === activeLabel);
   const invocations = taskRows.length;
   const recoveries = Math.max(0, invocations - 1);
-  const lastFirstWord = taskRows[taskRows.length - 1]?.timeToFirstWordMs;
+  // Live latency = end-of-speech → first spoken word (the true system
+  // response time). NOT wake→first-word, which would also include the
+  // listening cue, the participant's own spoken command, and the
+  // silence-detection tail — inflating it ~2×.
+  const lastFirstWord = taskRows[taskRows.length - 1]?.endUtteranceToFirstWordMs;
 
   const onExport = async () => {
     if (rows.length === 0) {

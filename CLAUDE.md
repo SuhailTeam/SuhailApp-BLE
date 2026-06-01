@@ -63,6 +63,7 @@ A typical command turn in the mobile app: `/api/stt` (audio→text) → `/api/no
 | Endpoint (POST) | Body | Returns |
 |-----------------|------|---------|
 | `/api/intent` | `{ text, language? }` | `{ command, params?, rawText }` (Scribe annotations stripped first) |
+| `/api/answer` | `{ text, photoToken, language? }` | **NDJSON stream** of `AnswerEvent`s (see below) |
 | `/api/normalize` | `{ text, language }` | `{ text }` (Arabic-script English → Latin; no-op when not needed) |
 | `/api/vision/scene` | `{ image\|photoToken, language? }` | `{ description, confidence }` |
 | `/api/vision/ocr` | `{ image\|photoToken, context?, language? }` | `{ text }` |
@@ -75,6 +76,15 @@ A typical command turn in the mobile app: `/api/stt` (audio→text) → `/api/no
 | `/api/faces/enroll` | `{ image\|photoToken, name }` | `{ faceId, name, enrolledAt }` |
 | `/api/stt` | `{ audio (base64 s16le 16kHz mono PCM), language? }` | `ScribeResult` (503 if no `ELEVENLABS_API_KEY`; rejects <1KB PCM) |
 | `/api/tts` | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes + `Content-Type`/`X-Audio-Format` headers (≤5000 chars; 503 if no key) |
+
+### Streaming answer (`POST /api/answer`, `src/relay/answer.ts`)
+
+The merged **intent + vision + spoken-answer** endpoint — the low-latency path the mobile app uses for a command turn. It routes the utterance (reusing `routeCommand`), then **streams NDJSON** (one `AnswerEvent` JSON per line, `Content-Type: application/x-ndjson`, chunked, no proxy buffering via `X-Accel-Buffering: no`):
+
+- **Free-text commands** (`scene-summarize`, `ocr-read-text`, `visual-qa`): streams the vision LLM (`streamVisionContent`, `stream:true`), splits the output into sentences (`createSentenceSplitter`), runs **per-sentence TTS** (`synthesize`), and emits each as a `chunk` (`{ seq, text, format, audio: base64 }`) **in order** — so the phone speaks sentence 1 while the LLM is still writing the rest. Scene speaks recognized names first (chunk seq 0). Server-side replicas of the mobile caps apply (scene 350 / OCR 400 chars + "swipe to stop" suffix; OCR whitespace-collapsed). Ends with a `final` (full spoken text → `lastResponse`).
+- **Everything else** (`currency`, `color`, `find-object`, `who`, `face-enroll`, `unknown`): emits `route` with `mode:"client"` and the phone runs its existing discrete dispatch (keeps the tuned, localized composition — e.g. money's RTL plural phrasing). Still one fewer round-trip (no separate `/api/intent`).
+
+`AnswerEvent` union (in `src/types/index.ts`, shared with mobile): `route` (`mode:"streamed"|"client"`) · `chunk` · `final` · `error` (`recoverable` — `true` before any chunk → phone falls back to discrete dispatch; `false` after ≥1 chunk → stop, no fallback) · `done` (always last). Registered on the HMAC router **without** the json-500 `wrap()` (it manages its own streaming errors). A client disconnect aborts the in-flight OpenRouter + ElevenLabs work.
 
 ### Face-management routes (`src/relay/faces.ts`)
 

@@ -21,7 +21,21 @@ export interface ListeningMocks {
   cues: string[];
   dispatched: string[];
   lastResponse: string | null;
+  /** Texts passed to the mocked runStreamedAnswer (merged /api/answer path). */
+  streamedCalls: string[];
+  /** When set, the mocked runStreamedAnswer returns this instead of deriving an
+   *  outcome from `route.command` — lets a test force fallback/aborted. */
+  forceStreamOutcome:
+    | { kind: "spoke"; fullText: string }
+    | { kind: "dispatch"; command: string; params?: Record<string, string> }
+    | { kind: "unknown" }
+    | { kind: "aborted" }
+    | { kind: "fallback" }
+    | null;
 }
+
+/** Commands the merged endpoint streams; everything else is client-dispatched. */
+const STREAMED = ["scene-summarize", "ocr-read-text", "visual-qa"];
 
 export const mocks: ListeningMocks = {} as ListeningMocks;
 
@@ -36,6 +50,8 @@ export function resetMocks(): void {
   mocks.cues = [];
   mocks.dispatched = [];
   mocks.lastResponse = null;
+  mocks.streamedCalls = [];
+  mocks.forceStreamOutcome = null;
 }
 resetMocks();
 
@@ -50,6 +66,36 @@ mock.module("../../src/audio/cues", () => ({
   },
 }));
 mock.module("../../src/audio/playback", () => ({ stopAll: async () => {} }));
+mock.module("../../src/audio/thinkingCue", () => ({
+  startThinkingCue: async () => {
+    mocks.cues.push("working");
+  },
+  stopThinkingCue: async () => {},
+}));
+// Merged streaming endpoint: derive an outcome from route.command (so most
+// existing tests "just work") unless a test forces one via forceStreamOutcome.
+mock.module("../../src/audio/streamingTts", () => ({
+  runStreamedAnswer: async (opts: any) => {
+    mocks.streamedCalls.push(opts.text);
+    if (mocks.forceStreamOutcome) {
+      const o = mocks.forceStreamOutcome;
+      if (o.kind === "spoke") {
+        opts.onRoute?.(mocks.route.command, "streamed");
+        opts.onFirstChunkStart?.();
+      }
+      return o;
+    }
+    const cmd = mocks.route.command;
+    if (STREAMED.includes(cmd)) {
+      opts.onRoute?.(cmd, "streamed");
+      opts.onFirstChunkStart?.();
+      return { kind: "spoke", fullText: mocks.reply };
+    }
+    opts.onRoute?.(cmd, "client");
+    if (cmd === "unknown") return { kind: "unknown" };
+    return { kind: "dispatch", command: cmd, params: mocks.route.params };
+  },
+}));
 mock.module("../../src/ble/mic", () => ({
   startCapture: async () => mocks.capture,
   cancelCapture: async () => {},

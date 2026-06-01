@@ -169,9 +169,18 @@ Two STT architectures still on the table:
 
 Default plan: **measure both with the ported `timeline.ts` before locking in.** Start with Option B because it's the lowest moving-parts path to a working slice (no CAI agent setup), then evaluate A if latency is unacceptable.
 
+### Streaming answer turn
+
+The hot command turn no longer makes the 5 sequential relay calls (`stt → normalize → intent → vision → tts`). After STT it makes **one** call to `POST /api/answer` (`src/relay/answer.ts → requestAnswerStream`, via **`expo/fetch`** for an incrementally-readable body), which routes the utterance server-side and, for the **three free-text commands** (`scene-summarize`, `ocr-read-text`, `visual-qa`), streams the spoken answer back as **NDJSON `AnswerEvent`s** — per-sentence `chunk`s carrying base64 audio. `src/audio/streamingTts.ts → runStreamedAnswer` writes each chunk to a temp file and enqueues it on the existing serialized `play()` queue, so **sentence 1 plays while the LLM is still generating the rest** (the first chunk fires the `tts-playback-start` mark).
+
+- **Photo:** `state/listening.ts` resolves the swipe-time pre-capture to a `photoToken` first (near-instant) and passes it in; the server's `waitForBytes` does the upload wait, so the phone skips its own `/api/photo/wait` hop.
+- **Other commands** (`currency`, `color`, `find-object`, `who`, `face-enroll`, `unknown`): the server returns `route mode:"client"` and the phone runs its **existing discrete dispatch** unchanged (keeps the tuned, localized composition — e.g. money's RTL phrasing). One fewer round-trip (no separate `/api/intent`).
+- **Working earcon:** `src/audio/thinkingCue.ts` (`startThinkingCue`/`stopThinkingCue`) plays a quiet looping pulse (`assets/cues/working.wav`) during the wait on its **own** expo-audio player (NOT the serialized queue), stopped the instant the first chunk arrives — single A2DP stream means cue-off-before-audio-on.
+- **Fallback:** if streaming is unavailable before routing, the phone falls back to the **legacy** `normalize → /api/intent → discrete dispatch` path (`runLegacyTurn`), reusing the already-resolved photo. A recoverable mid-stream error (before any audio) dispatches the known command discretely; a failure after ≥1 chunk keeps the partial answer (no double-speak).
+
 ### Audio cues
 
-Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues. Generator: `scripts/generate-cues.ts` (pure synthetic tones — no network).
+Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`, `working.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues. Generator: `scripts/generate-cues.ts` (pure synthetic tones — no network).
 
 ### Pre-bundled phrase audio
 
@@ -255,6 +264,7 @@ The mobile app talks to the Railway server via these endpoints. The server imple
 | Endpoint | Method | Body | Returns | Wraps |
 |---|---|---|---|---|
 | `/api/intent` | POST | `{ text, language }` | `{ command, params, confidence }` | [command-router.ts](../src/commands/command-router.ts) |
+| `/api/answer` | POST | `{ text, photoToken, language }` | **NDJSON `AnswerEvent` stream** (route → chunks → final). The primary low-latency turn path — see [Streaming answer turn](#streaming-answer-turn). | [answer.ts](../src/relay/answer.ts) |
 | `/api/vision/scene` | POST | `{ image: base64, language }` | `{ description }` | [vision-service.ts → describeScene](../src/services/vision-service.ts) |
 | `/api/vision/ocr` | POST | `{ image: base64, language }` | `{ text, truncated }` | vision-service → extractText |
 | `/api/vision/currency` | POST | `{ image: base64, language }` | `{ bills: [...], total, currency }` | vision-service → recognizeCurrency |
@@ -351,7 +361,8 @@ mobile/
 │   └── cues/
 │       ├── listening.wav            # Pre-generated chimes
 │       ├── got-it.wav
-│       └── cancelled.wav
+│       ├── cancelled.wav
+│       └── working.wav              # Looping "thinking" pulse during the answer wait
 └── src/
     ├── App.tsx                      # Root: ThemeProvider > BluetoothSessionProvider > themed native-stack (Onboarding|Main)
     ├── theme/                       # Centralized WCAG theme (tokens, palettes, ThemeProvider, navTheme, buildTheme)
@@ -366,6 +377,8 @@ mobile/
     ├── audio/
     │   ├── stt.ts                   # ElevenLabs CAI WebSocket
     │   ├── tts.ts                   # ElevenLabs CAI WebSocket (same socket)
+    │   ├── streamingTts.ts          # Consumes /api/answer NDJSON → temp files → serialized play() queue
+    │   ├── thinkingCue.ts           # Looping "working" earcon (own player) during the answer wait
     │   └── cues.ts                  # Bundled WAV playback
     ├── commands/                    # Mirrors src/commands/ in the server
     │   ├── describe.ts
@@ -385,8 +398,9 @@ mobile/
     │   ├── activity.ts              # Rolling 20-event log
     │   └── usabilityLog.ts          # Uncapped session log for usability testing (+ CSV export)
     ├── relay/
-    │   ├── client.ts                # HTTPS client + HMAC auth
+    │   ├── client.ts                # HTTPS client + HMAC auth (exports authHeaders/buildUrl/withTimeout)
     │   ├── intent.ts                # /api/intent
+    │   ├── answer.ts                # /api/answer streaming consumer (expo/fetch) + NDJSON decoder
     │   ├── vision.ts                # /api/vision/*
     │   └── faces.ts                 # /api/faces/*
     ├── i18n/
