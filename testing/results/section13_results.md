@@ -8,9 +8,9 @@ Overall: ALL GREEN ✅
 
 ## Table 13.9 — Unit tests
 Server unit: 80 pass / 0 fail
-Mobile unit: 30 pass / 0 fail
+Mobile unit: 37 pass / 0 fail
 Mobile state-machine (listening): 7 pass / 0 fail
-**Total unit: 117 pass / 0 fail — 100%**
+**Total unit: 124 pass / 0 fail — 100%**
 
 ## Table 13.10 — Integration tests
 Relay HTTP integration (auth, photo flow, intent pipeline): 17 pass / 0 fail
