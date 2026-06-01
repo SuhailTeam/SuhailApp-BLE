@@ -1,0 +1,76 @@
+name: tests
+
+on:
+  push:
+    branches: [development, main]
+  pull_request:
+    branches: [development, main]
+  workflow_dispatch: {}
+
+jobs:
+  # Tiers 1–3 + the offline functional metrics (Tier 4a). No secrets, no network.
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install server deps
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Typecheck server (prod + tests)
+        run: |
+          bun run typecheck
+          bun run typecheck:test
+
+      - name: Server tests (unit + integration + regression)
+        run: bun test ./testing/unit ./testing/integration ./testing/regression
+
+      - name: Install mobile deps
+        working-directory: mobile
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Typecheck mobile (prod + tests)
+        working-directory: mobile
+        run: |
+          bun run typecheck
+          bun run typecheck:test
+
+      - name: Mobile tests (unit + state-machine)
+        working-directory: mobile
+        run: bun run test
+
+      - name: Generate Section-13 results artifact
+        run: bun run testing/run_all.ts
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section13-results
+          path: testing/results/section13_results.md
+
+  # Tier 4b — API-key accuracy/latency tier. Manual only; needs provider secrets.
+  accuracy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile || bun install
+      - name: Live accuracy harness
+        env:
+          RUN_LIVE: "1"
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: bun run testing/run_all.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: section13-results-live
+          path: testing/results/section13_results.md

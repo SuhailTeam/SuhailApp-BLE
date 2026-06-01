@@ -69,7 +69,7 @@ const commandMap: Array<{ words: string[]; command: CommandType }> = [
  * Returns a RouteResult for an explicit command, or null when nothing matched
  * (so the caller can try the LLM, or fall back to the visual-qa default).
  */
-function matchKeywordCommand(transcription: string): RouteResult | null {
+export function matchKeywordCommand(transcription: string): RouteResult | null {
   const text = transcription.toLowerCase().trim();
   if (text.length === 0) return null;
 

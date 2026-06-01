@@ -444,6 +444,16 @@ After the relay endpoint exists:
 3. Add to the command dispatcher in `mobile/src/state/listening.ts` (the equivalent of `this.handlers` in the cloud `app.ts`).
 4. Add a real hardware test to the verification list in [the research doc](../../../../../.claude/plans/i-want-you-to-curried-steele.md#7-verification--how-wed-know-the-rewrite-is-done).
 
+## Testing (mobile)
+
+Tests live in `mobile/testing/` (Bun test). `testing/preload.ts` stubs the native
+modules (BLE SDK, expo-audio/file-system, MMKV, react-native) so the **real** app
+modules import offline. `testing/unit/` covers pure logic (enrollment state, the
+transcription filter, the OCR cap, i18n, the timeline); `testing/state-machine/`
+drives the **real** listening machine via `helpers/listening-harness.ts` (mocked
+IO) and runs as a **separate** `bun test` process because `mock.module` is
+process-global. Full layout + gotchas: [`../testing/README.md`](../testing/README.md).
+
 ## Commands quick reference (mobile dev workflow)
 
 These don't work yet — listed for when Phase B lands.
@@ -455,7 +465,9 @@ bunx expo start --dev-client          # Start Metro for dev build
 eas build --profile development --platform ios       # iOS dev build (requires Mac or EAS cloud)
 eas build --profile development --platform android   # Android dev build
 eas build --profile production --platform all        # Production builds for both
-bun run typecheck                     # tsc --noEmit
+bun run typecheck                     # tsc --noEmit (production src; testing/ excluded)
+bun run typecheck:test                # Type-check src + testing/ (tsconfig.test.json)
+bun run test                          # Mobile suite: bun test ./testing/unit && ./testing/state-machine
 bun run scripts/generate-cues.ts      # Regenerate cue chimes (synthetic, no network)
 bun run scripts/generate-phrases.ts   # Regenerate pre-bundled phrase audio (needs repo-root ELEVENLABS_API_KEY)
 bun scripts/make-icons.ts             # Regenerate app icon + splash + logo marks (uses repo-root sharp)

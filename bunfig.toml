@@ -1,0 +1,5 @@
+[test]
+# Pin deterministic test env (dummy keys) before any module reads config, and
+# install the network guard. Real .env values are overridden so the suite never
+# makes a live OpenRouter/AWS/ElevenLabs call.
+preload = ["./testing/preload.ts"]

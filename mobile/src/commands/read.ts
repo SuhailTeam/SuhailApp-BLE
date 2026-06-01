@@ -10,7 +10,7 @@ const logger = new Logger("Cmd.Read");
  * here so behaviour matches. Long OCR runs (street signs full of legalese,
  * dense menus) lock the user into 30s+ of dictation otherwise.
  */
-const OCR_MAX_CHARS = 400;
+export const OCR_MAX_CHARS = 400;
 
 const TRUNCATION_SUFFIX = {
   ar: " وغيره. اسحب للأمام للإيقاف.",
@@ -21,6 +21,22 @@ const NO_TEXT_MESSAGE = {
   ar: "ما قدرت ألاقي نص في الصورة.",
   en: "I couldn't find any text in the image.",
 } as const;
+
+/**
+ * Pure OCR result formatter: collapses whitespace so TTS reads continuous
+ * prose, returns the localised "no text" message when empty, and caps the
+ * output at OCR_MAX_CHARS with the localised "...swipe to stop" tail.
+ * Extracted from executeRead so the cap/format logic is unit-testable offline.
+ */
+export function formatOcrResult(text: string | undefined, language: Language): string {
+  const cleaned = (text ?? "").replace(/\n+/g, " ").replace(/\s{2,}/g, " ").trim();
+  if (cleaned.length === 0) {
+    return NO_TEXT_MESSAGE[language];
+  }
+  return cleaned.length > OCR_MAX_CHARS
+    ? cleaned.slice(0, OCR_MAX_CHARS).trim() + TRUNCATION_SUFFIX[language]
+    : cleaned;
+}
 
 /**
  * OCR / read-text command — mirrors src/commands/ocr-read-text.ts in the
@@ -46,14 +62,7 @@ export async function executeRead(opts: {
   const { text } = await ocr({ photoToken: photo.photoToken }, language, context, signal);
   if (signal?.aborted) throw new Error("aborted");
 
-  const cleaned = (text ?? "").replace(/\n+/g, " ").replace(/\s{2,}/g, " ").trim();
-  logger.info(`OCR result (${cleaned.length} chars)`);
-
-  if (cleaned.length === 0) {
-    return NO_TEXT_MESSAGE[language];
-  }
-
-  return cleaned.length > OCR_MAX_CHARS
-    ? cleaned.slice(0, OCR_MAX_CHARS).trim() + TRUNCATION_SUFFIX[language]
-    : cleaned;
+  const result = formatOcrResult(text, language);
+  logger.info(`OCR result (${result.length} chars)`);
+  return result;
 }
