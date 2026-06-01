@@ -10,8 +10,22 @@ import { BluetoothSessionProvider } from "./ble/connection";
 import { ThemeProvider, toNavigationTheme, useTheme } from "./theme";
 import { MainTabs } from "./navigation/MainTabs";
 import OnboardingScreen from "./screens/OnboardingScreen";
+import UsabilityTestScreen from "./screens/UsabilityTestScreen";
 import { useOnboarding } from "./state/onboarding";
 import { getSettings } from "./state/settings";
+
+// Typed root routes so navigate("UsabilityTest") typechecks (the navigator is
+// otherwise untyped). Augments the global default useNavigation()/navigate type.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace ReactNavigation {
+    interface RootParamList {
+      Main: undefined;
+      Onboarding: undefined;
+      UsabilityTest: undefined;
+    }
+  }
+}
 
 // Apply the saved layout direction once at startup. forceRTL only takes full
 // effect after a reload, so the Settings language toggle prompts a restart on a
@@ -37,6 +51,8 @@ function RootNavigator(): React.ReactElement {
         ) : (
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         )}
+        {/* Testing-mode screen, reached from Settings → Testing (header shown for back). */}
+        <Stack.Screen name="UsabilityTest" component={UsabilityTestScreen} options={{ headerShown: true }} />
       </Stack.Navigator>
       <StatusBar style="light" />
     </NavigationContainer>

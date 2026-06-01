@@ -24,7 +24,7 @@ import { getLastResponse, setLastResponse, clearLastResponse } from "./lastRespo
 import { getSettings } from "./settings";
 import { isValidTranscription, needsScriptNormalization, stripAnnotations } from "../utils/transcription-filter";
 import { Logger } from "../utils/logger";
-import { startTimeline, mark, endTimeline } from "../utils/timeline";
+import { startTimeline, mark, tagTimeline, endTimeline } from "../utils/timeline";
 
 const logger = new Logger("Listening");
 
@@ -339,6 +339,10 @@ export async function processTranscription(text: string, confidence: number): Pr
   logger.info(`routed: "${snippet(normalised)}" → ${route.command}${paramSummary}`);
   logActivity(`routed → ${route.command}${paramSummary}`);
 
+  // Tag the in-flight timeline so endTimeline records a usability-test row for
+  // this command turn (wake → glasses-start-speaking timing, grouped by task).
+  tagTimeline({ command: route.command, transcript: normalised });
+
   // Step 4: dispatch to a real command handler (slice 3b — describe-scene
   // only) OR fall through to the bilingual "would do" preview stub for
   // commands that haven't been ported yet.
@@ -625,7 +629,7 @@ async function speakWithEchoGuard(text: string): Promise<void> {
   useListening.setState({ speaking: true });
   try {
     mark("tts-call");
-    await speak(text);
+    await speak(text, { onStart: () => mark("tts-playback-start") });
     mark("tts-playback-done");
   } catch (err) {
     logger.warn(`speak failed: ${err instanceof Error ? err.message : String(err)}`);

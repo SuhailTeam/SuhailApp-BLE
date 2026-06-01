@@ -25,8 +25,14 @@ function extensionFor(format: AudioFormat): string {
  *
  * Speed + voice preset come from settings. Default format is mp3 — universal
  * decoder support and small enough to write a temp file fast.
+ *
+ * `onStart` fires the instant audio begins playing (first byte to the speaker),
+ * forwarded to playback for both the bundled-phrase and live-TTS paths.
  */
-export async function speak(text: string, opts: { signal?: AbortSignal } = {}): Promise<void> {
+export async function speak(
+  text: string,
+  opts: { signal?: AbortSignal; onStart?: () => void } = {},
+): Promise<void> {
   const settings = getSettings();
   const t0 = Date.now();
 
@@ -41,7 +47,7 @@ export async function speak(text: string, opts: { signal?: AbortSignal } = {}): 
     const asset = bundledPhraseAsset(text);
     if (asset != null) {
       logger.debug(`bundled phrase: "${snippet(text)}"`);
-      await play(asset, { volume: settings.volume, label: `phrase:${snippet(text)}` });
+      await play(asset, { volume: settings.volume, label: `phrase:${snippet(text)}`, onStart: opts.onStart });
       return;
     }
   }
@@ -70,7 +76,7 @@ export async function speak(text: string, opts: { signal?: AbortSignal } = {}): 
   logger.debug(`synth ${text.length}ch → ${response.bytes.byteLength}B in ${Date.now() - t0}ms`);
 
   try {
-    await play({ uri: path }, { volume: settings.volume, label: `tts:${snippet(text)}` });
+    await play({ uri: path }, { volume: settings.volume, label: `tts:${snippet(text)}`, onStart: opts.onStart });
   } finally {
     // Best-effort cleanup; on iOS the cache is auto-cleared so this is belt-and-braces.
     FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
