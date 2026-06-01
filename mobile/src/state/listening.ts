@@ -2,8 +2,10 @@ import { create } from "zustand";
 import { playCue } from "../audio/cues";
 import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
+import { startThinkingCue, stopThinkingCue } from "../audio/thinkingCue";
+import { runStreamedAnswer } from "../audio/streamingTts";
 import { cancelCapture, startCapture } from "../ble/mic";
-import { capturePhoto, GLASSES_DISCONNECTED_ERROR, type CapturedPhoto } from "../ble/camera";
+import { capturePhoto, resolvePhoto, GLASSES_DISCONNECTED_ERROR, type CapturedPhoto } from "../ble/camera";
 import { onGlassesDisconnected } from "../ble/connection";
 import { transcribe as sttTranscribe } from "../relay/stt";
 import { classifyIntent, type CommandType } from "../relay/intent";
@@ -167,6 +169,7 @@ export async function activate(): Promise<void> {
     clearEnrollmentTimeout();
     if (interruptEnrollment()) logActivity("enrollment interrupted by swipe");
     await cancelCapture().catch(() => {});
+    await stopThinkingCue();
     await stopAllAudio().catch(() => {});
     useListening.setState({ speaking: false });
     logActivity("interrupted during processing → listening");
@@ -197,6 +200,7 @@ export async function interruptAndListen(): Promise<void> {
   clearEnrollmentTimeout();
   if (interruptEnrollment()) logActivity("enrollment interrupted (left short press)");
   await cancelCapture().catch(() => {});
+  await stopThinkingCue();
   await stopAllAudio().catch(() => {});
   useListening.setState({ speaking: false });
   logActivity("interrupted → listening");
@@ -298,7 +302,121 @@ export async function processTranscription(text: string, confidence: number): Pr
     return;
   }
 
-  // Step 2: normalize (no-op when not needed; saves an HTTP hop by checking client-side first).
+  // ── Merged streaming turn ───────────────────────────────────────────────
+  // POST /api/answer does normalize + routing + (for scene/ocr/vqa) streams the
+  // spoken answer sentence-by-sentence, so the glasses speak sentence 1 while
+  // the LLM is still generating the rest. Resolve the photo first — the
+  // swipe-time pre-capture makes this near-instant, and it means the server's
+  // waitForBytes returns immediately when we pass the token. The legacy discrete
+  // pipeline stays as a fallback when streaming is unavailable.
+  const preCapture = preCapturePromise;
+  preCapturePromise = null;
+
+  let photo: CapturedPhoto;
+  try {
+    photo = await resolvePhoto({ preCapture, signal: sttAbort?.signal });
+  } catch (err) {
+    await handleTurnError(err, language);
+    return;
+  }
+  if (sttAbort?.signal?.aborted) return;
+
+  // Mic echo guard covers the answer round-trip + the working cue.
+  useListening.setState({ speaking: true });
+  mark("answer-call");
+  await startThinkingCue();
+
+  let result;
+  try {
+    result = await runStreamedAnswer({
+      text,
+      photoToken: photo.photoToken,
+      language,
+      signal: sttAbort?.signal,
+      onRoute: (command) => {
+        // Tag the in-flight timeline so endTimeline records a usability row for
+        // this turn (wake → glasses-start-speaking, grouped by task).
+        if (command !== "unknown") tagTimeline({ command, transcript: text });
+        mark("intent-done");
+        logActivity(`routed → ${command}`);
+      },
+      onFirstChunkStart: () => mark("tts-playback-start"),
+    });
+  } finally {
+    await stopThinkingCue(); // single A2DP stream: ensure the cue is off
+  }
+
+  switch (result.kind) {
+    case "aborted":
+      useListening.setState({ speaking: false });
+      return;
+
+    case "spoke":
+      // Chunks already played (runStreamedAnswer awaited playback). Finalise the
+      // same way speakWithEchoGuard does: store for repeat, dump the timeline,
+      // lift the echo guard after the buffer window.
+      if (result.fullText) setLastResponse(result.fullText);
+      mark("tts-playback-done");
+      useListening.setState({ state: "idle" });
+      endTimeline();
+      liftEchoGuardSoon();
+      return;
+
+    case "unknown":
+      useListening.setState({ speaking: false });
+      await finishProcessing(messages.unknownCommand[language]);
+      return;
+
+    case "dispatch":
+      // Structured/short command, face-enroll, or a streamed command that failed
+      // before audio — run the tuned discrete handler with the photo we already
+      // captured (no re-capture). onRoute already tagged the timeline.
+      useListening.setState({ speaking: false });
+      try {
+        mark("dispatch-start");
+        const reply = await dispatchCommand(result.command, result.params, language, Promise.resolve(photo));
+        mark("dispatch-done");
+        await finishProcessing(reply);
+      } catch (err) {
+        await handleTurnError(err, language, result.command);
+      }
+      return;
+
+    case "fallback":
+      // Streaming unavailable before routing → legacy normalize → classify → dispatch.
+      useListening.setState({ speaking: false });
+      logger.warn("merged answer unavailable — using legacy discrete path");
+      await runLegacyTurn(text, language, photo);
+      return;
+  }
+}
+
+/**
+ * Maps a turn error to the right spoken outcome: silent on a user cancel, the
+ * deduped disconnect notice on a glasses drop, the generic error otherwise.
+ */
+async function handleTurnError(err: unknown, language: Language, command?: CommandType): Promise<void> {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (err instanceof Error && (err.name === "AbortError" || msg === "aborted" || msg === "interrupted")) {
+    return; // user acted — stay silent
+  }
+  if (msg === GLASSES_DISCONNECTED_ERROR) {
+    logger.warn(`turn aborted: glasses disconnected${command ? ` (${command})` : ""}`);
+    logActivity(`${command ?? "command"} aborted: glasses disconnected`);
+    await announceDisconnectOnce(language);
+    return;
+  }
+  logger.error(`turn failed${command ? ` (${command})` : ""}:`, err);
+  logActivity(`${command ?? "command"} failed`);
+  await finishProcessing(messages.generalError[language]);
+}
+
+/**
+ * Legacy discrete pipeline (normalize → classify → dispatch). Used only when the
+ * merged /api/answer stream is unavailable before any routing. Reuses the
+ * already-resolved photo so we never re-capture.
+ */
+async function runLegacyTurn(text: string, language: Language, photo: CapturedPhoto): Promise<void> {
   let normalised = text;
   if (needsScriptNormalization(text, language)) {
     try {
@@ -306,75 +424,39 @@ export async function processTranscription(text: string, confidence: number): Pr
       if (result && result !== text) {
         normalised = result;
         logger.info(`normalised: "${snippet(text)}" → "${snippet(normalised)}"`);
-        logActivity(`normalised → "${snippet(normalised)}"`);
       }
     } catch (err) {
-      // Non-fatal — server-side normalize is also no-op-safe; falling back to
-      // the original text just means the intent classifier sees Arabic-script
-      // text it may or may not handle well.
       logger.warn(`normalize failed, using original: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-
   mark("normalize-done");
 
-  // Step 3: classify intent.
   let route;
   try {
     route = await classifyIntent(normalised, language, sttAbort?.signal);
     mark("intent-done");
   } catch (err) {
-    if (err instanceof Error && (err.name === "AbortError" || err.message === "interrupted")) {
-      return;
-    }
+    if (err instanceof Error && (err.name === "AbortError" || err.message === "interrupted")) return;
     logger.error("intent classification failed:", err);
     logActivity("intent classification failed");
     await finishProcessing(messages.generalError[language]);
     return;
   }
 
-  const paramSummary = route.params && Object.keys(route.params).length
-    ? ` ${JSON.stringify(route.params)}`
-    : "";
-  logger.info(`routed: "${snippet(normalised)}" → ${route.command}${paramSummary}`);
-  logActivity(`routed → ${route.command}${paramSummary}`);
-
-  // Tag the in-flight timeline so endTimeline records a usability-test row for
-  // this command turn (wake → glasses-start-speaking timing, grouped by task).
+  logActivity(`routed → ${route.command} (legacy)`);
   tagTimeline({ command: route.command, transcript: normalised });
 
-  // Step 4: dispatch to a real command handler (slice 3b — describe-scene
-  // only) OR fall through to the bilingual "would do" preview stub for
-  // commands that haven't been ported yet.
   if (route.command === "unknown") {
     await finishProcessing(messages.unknownCommand[language]);
     return;
   }
-
   try {
     mark("dispatch-start");
-    const reply = await dispatchCommand(route.command, route.params, language);
+    const reply = await dispatchCommand(route.command, route.params, language, Promise.resolve(photo));
     mark("dispatch-done");
     await finishProcessing(reply);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Genuine user cancellations / interrupts → stay silent (the user acted).
-    if (err instanceof Error && (err.name === "AbortError" || msg === "aborted" || msg === "interrupted")) {
-      return;
-    }
-    // Glasses dropped — either a fail-fast pre-check (no connected→disconnected
-    // transition, so handleGlassesDisconnect won't fire) or a mid-capture drop.
-    // Always speak the notice, deduped against the transition handler so it's
-    // said exactly once and the user is NEVER left in silence.
-    if (msg === GLASSES_DISCONNECTED_ERROR) {
-      logger.warn(`command ${route.command} aborted: glasses disconnected`);
-      logActivity(`${route.command} aborted: glasses disconnected`);
-      await announceDisconnectOnce(language);
-      return;
-    }
-    logger.error(`command ${route.command} failed:`, err);
-    logActivity(`${route.command} failed`);
-    await finishProcessing(messages.generalError[language]);
+    await handleTurnError(err, language, route.command);
   }
 }
 
@@ -392,14 +474,9 @@ async function dispatchCommand(
   command: CommandType,
   params: Record<string, string> | undefined,
   language: Language,
+  preCapture: Promise<CapturedPhoto> | null,
 ): Promise<string> {
   const signal = sttAbort?.signal;
-  // Hand off the pre-capture started at swipe time. Each command's resolvePhoto
-  // races it against a 3s budget; if it isn't ready, fires a fresh capture.
-  // We snapshot + null the module slot here so a stale subsequent dispatch
-  // can't reuse the same promise.
-  const preCapture = preCapturePromise;
-  preCapturePromise = null;
 
   switch (command) {
     case "scene-summarize":
@@ -637,11 +714,20 @@ async function speakWithEchoGuard(text: string): Promise<void> {
     // Dump the per-command latency breakdown (no-op for repeat/disconnect speech
     // that has no in-flight timeline). Always runs, even when speak() failed.
     endTimeline();
-    setTimeout(() => {
-      useListening.setState({ speaking: false });
-      logger.debug("TTS echo guard lifted");
-    }, TTS_ECHO_BUFFER_MS);
+    liftEchoGuardSoon();
   }
+}
+
+/**
+ * Lifts the TTS echo guard after the buffer window so the glasses mic doesn't
+ * re-capture the tail of our own speech. Shared by the discrete speak path and
+ * the streamed-answer path.
+ */
+function liftEchoGuardSoon(): void {
+  setTimeout(() => {
+    useListening.setState({ speaking: false });
+    logger.debug("TTS echo guard lifted");
+  }, TTS_ECHO_BUFFER_MS);
 }
 
 function snippet(text: string): string {
@@ -720,6 +806,7 @@ async function handleGlassesDisconnect(): Promise<void> {
   interruptEnrollment();
   clearFailsafe();
   await cancelCapture().catch(() => {});
+  await stopThinkingCue();
   await stopAllAudio().catch(() => {});
   useListening.setState({ state: "idle", speaking: false });
 

@@ -11,7 +11,7 @@ const logger = new Logger("Audio.TTS");
 let ttsCounter = 0;
 
 /** Picks the file extension for a given ElevenLabs output format. */
-function extensionFor(format: AudioFormat): string {
+export function extensionFor(format: AudioFormat): string {
   if (format.startsWith("mp3_")) return "mp3";
   if (format.startsWith("pcm_")) return "pcm";
   if (format === "ulaw_8000") return "ulaw";

@@ -55,7 +55,7 @@ export class RelayError extends Error {
   }
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const deviceId = getDeviceId();
   const token = computeToken(deviceId);
   const headers: Record<string, string> = {
@@ -65,12 +65,12 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-function buildUrl(path: string): string {
+export function buildUrl(path: string): string {
   if (!path.startsWith("/")) path = `/${path}`;
   return `${BASE_URL}${path}`;
 }
 
-function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+export function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
   if (signal) {
