@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { Alert, I18nManager, StyleSheet, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 
 import { AppButton, Card, Chip, SectionHeader, Screen, SettingRow, Stepper } from "../components";
 import { makeStyles, useTheme, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from "../theme";
@@ -12,6 +13,7 @@ export default function SettingsScreen(): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { t } = useUi();
+  const navigation = useNavigation();
   const settings = useSettings();
   const themeMode = useAppearance((s) => s.themeMode);
   const textScale = useAppearance((s) => s.textScale);
@@ -99,6 +101,20 @@ export default function SettingsScreen(): React.ReactElement {
             step={TEXT_SCALE_STEP}
             format={(v) => `${Math.round(v * 100)}%`}
             onChange={(v) => updateAppearance({ textScale: v })}
+          />
+        </SettingRow>
+      </Card>
+
+      {/* Testing tools (usability-study data capture) */}
+      <SectionHeader title={t(ui.settings.testingSection)} />
+      <Card>
+        <SettingRow label={t(ui.settings.usabilityTest)}>
+          <AppButton
+            variant="secondary"
+            iconName="flask-outline"
+            label={t(ui.usability.title)}
+            onPress={() => navigation.navigate("UsabilityTest")}
+            fullWidth={false}
           />
         </SettingRow>
       </Card>

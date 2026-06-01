@@ -202,6 +202,16 @@ Transitions:
 
 Recreate the `pendingEnrollments` map for the 2-step face enrollment flow — see [`src/commands/face-enroll.ts`](../src/commands/face-enroll.ts) for the exact 30s timeout + TTS echo detection + concurrency lock.
 
+## Usability-test instrumentation
+
+For the section-13.8 usability study, every command turn is auto-measured — **no stopwatch, no Metro-log scraping.**
+
+- **`tts-playback-start` mark** — `audio/playback.ts → play()` takes an `onStart` callback that fires the instant `player.play()` succeeds (first audio byte to the speaker = "glasses start speaking"). `audio/tts.ts → speak()` forwards it on both the bundled-phrase and live-TTS paths; `state/listening.ts → speakWithEchoGuard` passes `onStart: () => mark("tts-playback-start")`. This is the headline metric: wake → glasses start speaking.
+- **`utils/timeline.ts`** — `markTime(label)` reads a mark's time relative to start; `tagTimeline({command, transcript})` (called by `listening.ts` right after intent routing) marks a turn as a real command so `endTimeline()` records one usability row per command turn (`timeToFirstWordMs`, `endUtteranceToFirstWordMs = first-word − mic-capture-done`, `totalMs`). Repeat/cue/disconnect speech is untagged and skipped.
+- **`state/usabilityLog.ts`** — UNCAPPED session store (the 20-entry `activity.ts` cap would drop early tasks in a 45-min session). Rows are tagged with the moderator's `activeTask`; recoveries for a task = rows − 1. `buildUsabilityCsv()` + `USABILITY_CSV_HEADER` produce the export.
+- **`screens/UsabilityTestScreen.tsx`** (Settings → Testing) — set the active task (1–8), watch live per-task counts, **Export CSV** (RN `Share`, dep-free), **Clear session** between participants. Strings live in `i18n/ui.ts → ui.usability`.
+- Companion data-collection kit (protocol, 8 counterbalanced task scripts AR/EN, SUS, Table-13.14 formulas) lives in Google Docs/Sheets, not the repo.
+
 ## Commands status
 
 All 8 live in [`src/commands/`](../src/commands/) (cloud) and `mobile/src/commands/` (mobile). Cloud handlers are the **specification** for the mobile equivalents.
@@ -372,7 +382,8 @@ mobile/
     │   ├── settings.ts              # Zustand store, MMKV-backed (server-contract AppSettings)
     │   ├── appearance.ts            # Display prefs: themeMode + textScale (MMKV, NOT in AppSettings)
     │   ├── onboarding.ts            # First-launch hasOnboarded flag (MMKV)
-    │   └── activity.ts              # Rolling 20-event log
+    │   ├── activity.ts              # Rolling 20-event log
+    │   └── usabilityLog.ts          # Uncapped session log for usability testing (+ CSV export)
     ├── relay/
     │   ├── client.ts                # HTTPS client + HMAC auth
     │   ├── intent.ts                # /api/intent
@@ -385,8 +396,9 @@ mobile/
     │   ├── HomeScreen.tsx           # Status hero + listening + voice commands reference
     │   ├── ContactsScreen.tsx       # Enrolled faces CRUD
     │   ├── ActivityScreen.tsx       # Rolling log
-    │   ├── SettingsScreen.tsx       # Voice output + Appearance/accessibility (theme, text size)
-    │   └── OnboardingScreen.tsx     # First-launch wizard (welcome → permissions → pair → done)
+    │   ├── SettingsScreen.tsx       # Voice output + Appearance/accessibility + Testing entry
+    │   ├── OnboardingScreen.tsx     # First-launch wizard (welcome → permissions → pair → done)
+    │   └── UsabilityTestScreen.tsx  # Testing mode: tag active task, view per-task counts, export CSV
     └── utils/
         ├── logger.ts                # Same Logger interface as server
         ├── timeline.ts              # Latency spans (port from src/utils/timeline.ts)
@@ -432,6 +444,16 @@ After the relay endpoint exists:
 3. Add to the command dispatcher in `mobile/src/state/listening.ts` (the equivalent of `this.handlers` in the cloud `app.ts`).
 4. Add a real hardware test to the verification list in [the research doc](../../../../../.claude/plans/i-want-you-to-curried-steele.md#7-verification--how-wed-know-the-rewrite-is-done).
 
+## Testing (mobile)
+
+Tests live in `mobile/testing/` (Bun test). `testing/preload.ts` stubs the native
+modules (BLE SDK, expo-audio/file-system, MMKV, react-native) so the **real** app
+modules import offline. `testing/unit/` covers pure logic (enrollment state, the
+transcription filter, the OCR cap, i18n, the timeline); `testing/state-machine/`
+drives the **real** listening machine via `helpers/listening-harness.ts` (mocked
+IO) and runs as a **separate** `bun test` process because `mock.module` is
+process-global. Full layout + gotchas: [`../testing/README.md`](../testing/README.md).
+
 ## Commands quick reference (mobile dev workflow)
 
 These don't work yet — listed for when Phase B lands.
@@ -443,7 +465,9 @@ bunx expo start --dev-client          # Start Metro for dev build
 eas build --profile development --platform ios       # iOS dev build (requires Mac or EAS cloud)
 eas build --profile development --platform android   # Android dev build
 eas build --profile production --platform all        # Production builds for both
-bun run typecheck                     # tsc --noEmit
+bun run typecheck                     # tsc --noEmit (production src; testing/ excluded)
+bun run typecheck:test                # Type-check src + testing/ (tsconfig.test.json)
+bun run test                          # Mobile suite: bun test ./testing/unit && ./testing/state-machine
 bun run scripts/generate-cues.ts      # Regenerate cue chimes (synthetic, no network)
 bun run scripts/generate-phrases.ts   # Regenerate pre-bundled phrase audio (needs repo-root ELEVENLABS_API_KEY)
 bun scripts/make-icons.ts             # Regenerate app icon + splash + logo marks (uses repo-root sharp)

@@ -6,7 +6,13 @@
   "scripts": {
     "start": "bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "test": "bun test ./testing/unit ./testing/integration ./testing/regression",
+    "test:unit": "bun test ./testing/unit",
+    "test:integration": "bun test ./testing/integration",
+    "test:regression": "bun test ./testing/regression",
+    "test:harness": "bun run testing/run_all.ts"
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.887.0",

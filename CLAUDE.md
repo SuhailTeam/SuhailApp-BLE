@@ -233,5 +233,12 @@ suhail/
 bun install           # Install dependencies
 bun run start         # Start server
 bun run dev           # Start with --watch (auto-restart)
-bun run typecheck     # TypeScript type checking
+bun run typecheck     # TypeScript type checking (production src)
+bun run typecheck:test # Type-check src + testing/ together
+bun run test          # Server suite: unit + integration + regression (Bun test)
+bun run test:harness  # Suites + offline functional metrics → testing/results/section13_results.md
 ```
+
+## Testing
+
+Automated test suite for report Chapter 13 lives in `testing/` (server) and `mobile/testing/` (app); see [`testing/README.md`](testing/README.md). It tests the **real** modules (a few pure internals are `export`ed for this), runs on Bun's test runner, and is wired into CI (`.github/workflows/test.yml`). `bun run test:harness` regenerates `testing/results/section13_results.md`, mapped cell-for-cell to Section 13 — real numbers where computable, explicit needs-data/device/participants placeholders otherwise (never an invented number). **Always prefix `bun test` paths with `./`** (a bare `testing/unit` also matches `mobile/testing/unit`).

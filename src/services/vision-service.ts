@@ -5,17 +5,17 @@ import type { VisionResponse, CurrencyResult, CurrencyBill, Language } from "../
 const logger = new Logger("VisionService");
 
 /** Resolves an optional language override to a concrete value (falls back to the configured default). */
-function resolveLanguage(language?: Language): Language {
+export function resolveLanguage(language?: Language): Language {
   return language ?? config.defaultLanguage;
 }
 
 /** Returns the language instruction for the prompt. */
-function langInstruction(language: Language): string {
+export function langInstruction(language: Language): string {
   return language === "ar" ? "Respond in Arabic." : "Respond in English.";
 }
 
 /** Returns the language's English name (used inside prompts as a literal). */
-function langName(language: Language): string {
+export function langName(language: Language): string {
   return language === "ar" ? "Arabic" : "English";
 }
 
@@ -64,7 +64,7 @@ async function callVisionAPI(options: VisionCallOptions): Promise<string> {
 }
 
 /** Strips markdown code fences from LLM JSON output. */
-function cleanJSON(raw: string): string {
+export function cleanJSON(raw: string): string {
   return raw.replace(/```json/g, "").replace(/```/g, "").trim();
 }
 
@@ -129,7 +129,7 @@ export async function answerVisualQuestion(
  * Defensive: malformed or empty responses become an empty result, never throws.
  * Groups bills by currency, picks the largest-total currency as dominant.
  */
-function parseCurrencyResponse(raw: string): CurrencyResult {
+export function parseCurrencyResponse(raw: string): CurrencyResult {
   let parsed: any;
   try {
     parsed = JSON.parse(cleanJSON(raw) || "{}");

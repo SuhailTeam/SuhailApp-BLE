@@ -1,0 +1,5 @@
+[test]
+# Stub native modules (BLE SDK, expo-audio/file-system, MMKV) so real mobile
+# modules import cleanly under bun:test. Behavioural deps for the listening
+# state machine are mocked per-suite via testing/helpers/listening-harness.ts.
+preload = ["./testing/preload.ts"]
