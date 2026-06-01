@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 const SAMPLE_RATE = 22050;
 const OUT_DIR = resolve(__dirname, "..", "assets", "cues");
 
-type CueType = "listening" | "got-it" | "cancelled";
+type CueType = "listening" | "got-it" | "cancelled" | "working";
 
 function tone(freq: number, durationMs: number, amplitude = 0.5): Int16Array {
   const n = Math.floor((durationMs / 1000) * SAMPLE_RATE);
@@ -77,6 +77,10 @@ const CUES: Record<CueType, () => Buffer> = {
   "got-it": () => buildWav(concat(tone(659.25, 70), silence(30), tone(659.25, 70))),
   // Falling E5 → A4: negative acknowledgment
   "cancelled": () => buildWav(concat(tone(659.25, 90), tone(440, 110))),
+  // Soft low "thinking" pulse, ~1s loop: a quiet D4 tick then silence. Played on
+  // a loop (audio/thinkingCue.ts) while the user waits for an answer, so a blind
+  // user knows the app is still working. Quiet (amp 0.22) so it sits under speech.
+  "working": () => buildWav(concat(tone(293.66, 90, 0.22), silence(910))),
 };
 
 mkdirSync(OUT_DIR, { recursive: true });

@@ -17,13 +17,15 @@ beforeEach(() => {
 });
 
 describe("transitions", () => {
-  test("ST-L1: idle → active → processing → idle (happy path dispatches)", async () => {
+  test("ST-L1: idle → active → processing → idle (happy path streams the answer)", async () => {
     await L.activate();
-    await waitFor(() => mocks.speakCalls.length > 0);
+    await waitFor(() => mocks.lastResponse !== null);
     expect(mocks.cues).toContain("listening"); // entered active
     expect(mocks.cues).toContain("got-it"); // entered processing
-    expect(mocks.dispatched).toContain("executeDescribe"); // routed + dispatched
-    expect(mocks.speakCalls).toContain("a tidy room"); // spoke the result
+    expect(mocks.cues).toContain("working"); // thinking cue during the wait
+    expect(mocks.streamedCalls).toContain("describe the room"); // merged /api/answer called
+    expect(mocks.lastResponse).toBe("a tidy room"); // streamed answer stored for repeat
+    expect(mocks.dispatched).toHaveLength(0); // streamed, not discretely dispatched
     expect(L.getListeningState()).toBe("idle"); // back to idle
   });
 

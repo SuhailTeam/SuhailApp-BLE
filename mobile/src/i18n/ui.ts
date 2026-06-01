@@ -113,7 +113,7 @@ export const ui = {
     activeTask: { ar: "المهمة الحالية", en: "Active task" },
     invocations: { ar: "محاولات هذه المهمة", en: "Invocations this task" },
     recoveries: { ar: "مرات إعادة المحاولة", en: "Error recoveries" },
-    lastFirstWord: { ar: "آخر زمن حتى بدء النطق", en: "Last time to first word" },
+    lastFirstWord: { ar: "زمن الاستجابة (من نهاية الكلام)", en: "Response time (end of speech)" },
     totalRows: { ar: "إجمالي السجلات", en: "Total rows recorded" },
     export: { ar: "تصدير CSV", en: "Export CSV" },
     clear: { ar: "مسح الجلسة", en: "Clear session" },

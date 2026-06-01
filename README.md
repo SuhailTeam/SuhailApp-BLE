@@ -76,6 +76,7 @@ All endpoints are **POST** under `/api` and require HMAC-Bearer auth (`X-Device-
 | Endpoint | Body | Returns |
 |----------|------|---------|
 | `POST /api/intent` | `{ text, language? }` | `{ command, params?, rawText }` |
+| `POST /api/answer` | `{ text, photoToken, language? }` | NDJSON stream — routes + (for scene/ocr/vqa) streams per-sentence audio chunks; other commands return `route mode:"client"`. See CLAUDE.md. |
 | `POST /api/normalize` | `{ text, language }` | `{ text }` |
 | `POST /api/vision/scene` | `{ image\|photoToken, language? }` | `{ description, confidence }` |
 | `POST /api/vision/ocr` | `{ image\|photoToken, context?, language? }` | `{ text }` |

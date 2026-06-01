@@ -12,7 +12,7 @@ let audioModeSet = false;
  * Setting `playsInSilentMode: true` matches the cloud version's behavior —
  * voice responses must reach the user even when the phone is on silent.
  */
-async function ensureAudioMode(): Promise<void> {
+export async function ensureAudioMode(): Promise<void> {
   if (audioModeSet) return;
   await setAudioModeAsync({
     playsInSilentMode: true,

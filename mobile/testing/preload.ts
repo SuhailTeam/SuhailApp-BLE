@@ -100,6 +100,14 @@ mock.module("expo-audio", () => ({
   setAudioModeAsync: async () => {},
 }));
 
+// expo/fetch (streaming fetch) → stub. Unit tests import relay/answer for the
+// pure NDJSON decoder; the streaming fetch itself is exercised on-device only.
+mock.module("expo/fetch", () => ({
+  fetch: async () => {
+    throw new Error("expo/fetch is stubbed in tests");
+  },
+}));
+
 // expo-file-system → no-op fs.
 mock.module("expo-file-system", () => ({
   cacheDirectory: "/tmp/",
