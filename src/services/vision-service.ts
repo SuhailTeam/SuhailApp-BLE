@@ -19,6 +19,27 @@ export function langName(language: Language): string {
   return language === "ar" ? "Arabic" : "English";
 }
 
+/* ── Prompt builders (shared by the blocking + streaming paths) ──────────── */
+// Extracted so POST /api/answer's streaming path uses byte-identical prompts to
+// the discrete /api/vision/* endpoints — no drift between the two.
+
+/** Scene-description prompt (used by describeScene + the streaming scene path). */
+export function buildScenePrompt(language: Language): string {
+  return `You are describing a scene to a blind person wearing smart glasses. In 2-3 short sentences (~50 words total), describe what they're facing: the setting or space they're in, the main objects in view, and where things are positioned relative to them (e.g., "on the desk in front of you", "to your right"). Mention people you see but don't try to identify them. Skip minor details like brand names or text on screens. Use natural spoken language — no markdown, lists, or symbols. ${langInstruction(language)}`;
+}
+
+/** Visual-question-answering prompt (used by answerVisualQuestion + the streaming VQA path). */
+export function buildVqaPrompt(question: string, language: Language): string {
+  return `${question}\n\nAnswer briefly in 1-2 sentences based on the image. Be direct. Your response will be read aloud by text-to-speech, so use plain spoken language only — no markdown, no LaTeX, no special symbols. Write math as spoken words (e.g. "x equals 37 over 5" not "$x = 37/5$"). ${langInstruction(language)}`;
+}
+
+/** OCR/read-text prompt (used by extractText + the streaming OCR path). */
+export function buildOcrPrompt(language: Language, context?: string): string {
+  return context
+    ? `The user asked: "${context}". Read ONLY the text from the specific object or area they are referring to. Return the text exactly as written, preserving the reading order. Do not include text from other objects, screens, or surfaces in the scene. Do not describe the image or add any commentary. If no text is found on that object, respond with an empty string. ${langInstruction(language)}`
+    : `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction(language)}`;
+}
+
 /* ── Shared OpenRouter vision helper ─────────────────────── */
 
 interface VisionCallOptions {
@@ -78,7 +99,7 @@ export async function describeScene(imageBase64: string, language?: Language): P
   logger.info("Sending image to OpenRouter API...");
   try {
     const description = await callVisionAPI({
-      prompt: `You are describing a scene to a blind person wearing smart glasses. In 2-3 short sentences (~50 words total), describe what they're facing: the setting or space they're in, the main objects in view, and where things are positioned relative to them (e.g., "on the desk in front of you", "to your right"). Mention people you see but don't try to identify them. Skip minor details like brand names or text on screens. Use natural spoken language — no markdown, lists, or symbols. ${langInstruction(lang)}`,
+      prompt: buildScenePrompt(lang),
       imageBase64,
       maxTokens: 200,
     });
@@ -107,7 +128,7 @@ export async function answerVisualQuestion(
   logger.info(`Sending image + question to OpenRouter: "${question}"`);
   try {
     const description = await callVisionAPI({
-      prompt: `${question}\n\nAnswer briefly in 1-2 sentences based on the image. Be direct. Your response will be read aloud by text-to-speech, so use plain spoken language only — no markdown, no LaTeX, no special symbols. Write math as spoken words (e.g. "x equals 37 over 5" not "$x = 37/5$"). ${langInstruction(lang)}`,
+      prompt: buildVqaPrompt(question, lang),
       imageBase64,
       maxTokens: 200,
     });
@@ -285,12 +306,8 @@ export async function extractText(
   const lang = resolveLanguage(language);
   logger.info("Sending image to OpenRouter for text extraction (vision OCR)...");
   try {
-    const prompt = context
-      ? `The user asked: "${context}". Read ONLY the text from the specific object or area they are referring to. Return the text exactly as written, preserving the reading order. Do not include text from other objects, screens, or surfaces in the scene. Do not describe the image or add any commentary. If no text is found on that object, respond with an empty string. ${langInstruction(lang)}`
-      : `Read and extract ALL visible text from this image. Return ONLY the text you can see, exactly as written, preserving the reading order. Do not describe the image or add any commentary. If no text is found, respond with an empty string. ${langInstruction(lang)}`;
-
     const extractedText = await callVisionAPI({
-      prompt,
+      prompt: buildOcrPrompt(lang, context),
       imageBase64,
       maxTokens: 500,
     });
@@ -326,4 +343,126 @@ export async function detectColor(imageBase64: string, language?: Language): Pro
     logger.error("Failed to detect color via OpenRouter API", error);
     throw error;
   }
+}
+
+/* ── Streaming vision (for POST /api/answer) ─────────────────────────────── */
+
+/**
+ * Streams an image + prompt to OpenRouter with `stream:true` and yields the
+ * model's text-content deltas as they arrive. Parses the SSE framing, tolerates
+ * OpenRouter keep-alive comment lines (": OPENROUTER PROCESSING") and the
+ * terminal "data: [DONE]". `TextDecoder({stream:true})` keeps multi-byte UTF-8
+ * (Arabic) intact across network chunk boundaries. Throws on a non-2xx response.
+ *
+ * Used only by the streaming answer pipeline; the discrete /api/vision/*
+ * endpoints keep using the blocking callVisionAPI above.
+ */
+export async function* streamVisionContent(
+  prompt: string,
+  imageBase64: string,
+  maxTokens: number,
+  signal?: AbortSignal,
+): AsyncGenerator<string> {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.openRouterApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.visionModel,
+      max_tokens: maxTokens,
+      stream: true,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+          ],
+        },
+      ],
+    }),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`OpenRouter stream failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue; // skip ": OPENROUTER PROCESSING" + blank lines
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") return;
+        try {
+          const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+          if (typeof delta === "string" && delta.length > 0) yield delta;
+        } catch {
+          // non-content event or partial JSON — ignore
+        }
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released */ }
+  }
+}
+
+/** Soft length at which the splitter flushes even without a sentence terminator
+ *  (so dense OCR with no punctuation still produces an early first chunk). */
+const SENTENCE_SOFT_CAP = 160;
+
+/** Sentence terminators: Latin `. ? ! …` + newline + Arabic `؟` (question) / `۔` (full stop). */
+const SENTENCE_TERMINATOR = /[.?!…\n؟۔]/;
+
+/**
+ * Stateful sentence accumulator for the token stream. `push(token)` returns any
+ * sentences that just completed (flushed as soon as a terminator appears, or at
+ * SENTENCE_SOFT_CAP for terminator-less runs); `flush()` returns the trailing
+ * remainder at end-of-stream. Flushing the FIRST sentence ASAP is the whole
+ * latency win — TTS starts on sentence 1 while the LLM is still generating.
+ */
+export function createSentenceSplitter() {
+  let buf = "";
+  return {
+    push(token: string): string[] {
+      buf += token;
+      const out: string[] = [];
+      while (true) {
+        const m = SENTENCE_TERMINATOR.exec(buf);
+        if (m) {
+          const end = m.index + 1;
+          const s = buf.slice(0, end).trim();
+          buf = buf.slice(end);
+          if (s) out.push(s);
+          continue;
+        }
+        if (buf.length >= SENTENCE_SOFT_CAP) {
+          const sp = buf.lastIndexOf(" ", SENTENCE_SOFT_CAP);
+          const cut = sp > SENTENCE_SOFT_CAP * 0.5 ? sp : SENTENCE_SOFT_CAP;
+          const s = buf.slice(0, cut).trim();
+          buf = buf.slice(cut);
+          if (s) out.push(s);
+          continue;
+        }
+        break;
+      }
+      return out;
+    },
+    flush(): string | null {
+      const s = buf.trim();
+      buf = "";
+      return s.length ? s : null;
+    },
+  };
 }
