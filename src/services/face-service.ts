@@ -24,16 +24,16 @@ const rekognition = new RekognitionClient({ region });
 let collectionReadyPromise: Promise<void> | null = null;
 
 /** Encode a name to an ASCII-safe ExternalImageId (hex of UTF-8 bytes). */
-function encodeName(name: string): string {
+export function encodeName(name: string): string {
   return Buffer.from(name, "utf8").toString("hex");
 }
 
 /** Decode a hex-encoded ExternalImageId back to the original name. */
-function decodeName(encoded: string): string {
+export function decodeName(encoded: string): string {
   return Buffer.from(encoded, "hex").toString("utf8");
 }
 
-function getSimilarityThreshold(): number {
+export function getSimilarityThreshold(): number {
   const threshold = Number.isFinite(config.confidenceThreshold) ? config.confidenceThreshold : 0.5;
   return threshold <= 1 ? threshold * 100 : threshold;
 }

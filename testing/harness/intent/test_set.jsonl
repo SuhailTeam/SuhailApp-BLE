@@ -1,0 +1,13 @@
+{"text": "describe what's around me", "expected": "scene-summarize", "keyword": true}
+{"text": "read this sign", "expected": "ocr-read-text", "keyword": true}
+{"text": "who is this", "expected": "face-recognize", "keyword": true}
+{"text": "enroll this person", "expected": "face-enroll", "keyword": true}
+{"text": "find my keys", "expected": "find-object", "keyword": true}
+{"text": "money please", "expected": "currency-recognize", "keyword": true}
+{"text": "color of this shirt", "expected": "color-detect", "keyword": true}
+{"text": "وصف ما حولي", "expected": "scene-summarize", "keyword": true}
+{"text": "اقرأ هذا", "expected": "ocr-read-text", "keyword": true}
+{"text": "what is in front of me", "expected": "scene-summarize", "keyword": false}
+{"text": "how much money am I holding", "expected": "currency-recognize", "keyword": false}
+{"text": "is the door open", "expected": "visual-qa", "keyword": false}
+{"text": "what time is it", "expected": "unknown", "keyword": false}
