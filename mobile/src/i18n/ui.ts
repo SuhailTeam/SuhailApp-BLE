@@ -101,6 +101,43 @@ export const ui = {
       en: "To change the layout direction, fully close and reopen the app.",
     },
     ok: { ar: "حسناً", en: "OK" },
+    testingSection: { ar: "الاختبار", en: "Testing" },
+    usabilityTest: { ar: "وضع اختبار الاستخدام", en: "Usability test mode" },
+  },
+  usability: {
+    title: { ar: "اختبار قابلية الاستخدام", en: "Usability test" },
+    intro: {
+      ar: "اختر المهمة الحالية قبل كل سيناريو. يسجّل التطبيق تلقائياً زمن «إيقاظ النظارة حتى بدء نطق النتيجة» لكل أمر. صدّر CSV والصقه في جدول البيانات.",
+      en: "Pick the active task before each scenario. The app auto-records, per command, the time from wake to the glasses starting to speak. Export the CSV and paste it into the data sheet.",
+    },
+    activeTask: { ar: "المهمة الحالية", en: "Active task" },
+    invocations: { ar: "محاولات هذه المهمة", en: "Invocations this task" },
+    recoveries: { ar: "مرات إعادة المحاولة", en: "Error recoveries" },
+    lastFirstWord: { ar: "آخر زمن حتى بدء النطق", en: "Last time to first word" },
+    totalRows: { ar: "إجمالي السجلات", en: "Total rows recorded" },
+    export: { ar: "تصدير CSV", en: "Export CSV" },
+    clear: { ar: "مسح الجلسة", en: "Clear session" },
+    clearTitle: { ar: "مسح بيانات الجلسة", en: "Clear session data" },
+    clearMsg: {
+      ar: "حذف كل السجلات المسجَّلة؟ افعل هذا بين المشاركين.",
+      en: "Delete all recorded rows? Do this between participants.",
+    },
+    cancel: { ar: "إلغاء", en: "Cancel" },
+    nothingToExport: { ar: "لا توجد سجلات للتصدير بعد.", en: "No rows to export yet." },
+    shareTitle: { ar: "بيانات اختبار سهيل", en: "Suhail usability data" },
+    notice: { ar: "ملاحظة", en: "Notice" },
+    // The 8 task scenarios (counterbalance the order per participant). Full
+    // verbal prompts live in the Protocol & Scripts doc; these are short labels.
+    tasks: [
+      { ar: "وصف المكان", en: "Describe the scene" },
+      { ar: "قراءة نص", en: "Read text" },
+      { ar: "التعرف على شخص", en: "Recognize a person" },
+      { ar: "تسجيل شخص", en: "Enroll a person" },
+      { ar: "إيجاد غرض", en: "Find an object" },
+      { ar: "تمييز العملة", en: "Recognize currency" },
+      { ar: "سؤال بصري", en: "Visual question" },
+      { ar: "تمييز اللون", en: "Detect a color" },
+    ] as Bi[],
   },
   onboarding: {
     welcomeTitle: { ar: "أهلاً بك في سهيل", en: "Welcome to Suhail" },
