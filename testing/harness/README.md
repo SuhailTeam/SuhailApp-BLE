@@ -35,20 +35,15 @@ One JSON object per line:
 - `keyword`: `true` if the utterance starts with an explicit trigger word (so it should
   take the R1 fast-path). Used to verify the keyword-fast-path classification.
 
-### Vision — `testing/harness/datasets/<area>/` (area = scene|ocr|color|object|currency|vqa)
-Put input images as `*.jpg` and a sibling `labels.jsonl`:
-```json
-{"file": "bill_50_x3.jpg", "expected": {"currency": "SAR", "total": 150}}
-{"file": "menu_en.jpg", "expected": {"textContains": "coffee"}}
-```
-The runner base64-encodes each image, calls the matching `vision-service` function, and
-scores against `expected` (exact / contains / numeric tolerance per area).
+> **Frozen at 13 rows on purpose.** The report cites the 69% keyword fast-path / 100%
+> keyword-accuracy figures computed from exactly this set (`run_all.ts` renders `n=13`
+> live). Growing the set changes those cited numbers — do it as a deliberate change and
+> regenerate the report figure in the same commit, not casually.
 
-### Face — `testing/harness/datasets/face/`
-`enroll/<name>.jpg` (one per known person) + `probe/labels.jsonl`:
-```json
-{"file": "alice_2.jpg", "expected": "Alice"}
-{"file": "stranger.jpg", "expected": null}
-```
-The runner enrolls the `enroll/` set into a throwaway Rekognition collection, recognizes
-each probe, computes recall + false-positive rate, then drops the collection.
+### Vision + Face — `testing/datasets/<command>/`
+The per-command functional dataset (Table 13.12) lives in **`testing/datasets/`**, keyed by
+the 8 `CommandType` slugs (incl. `face-recognize` + `face-enroll` separately). Each command
+dir has a `manifest.jsonl` + `images/`; the scorer (`testing/datasets/run.ts`) base64-encodes
+each image, calls the matching real `vision-service` / `face-service` function, and scores vs
+ground truth. Full manifest schema + per-command scoring rules + the on-device latency-capture
+procedure: **[`testing/datasets/README.md`](../datasets/README.md)**.

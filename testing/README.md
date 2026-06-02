@@ -14,9 +14,11 @@ testing/                      # server / relay (Bun test, run from repo root)
 ├── unit/                     # Tier 1 → report Table 13.9
 ├── integration/              # Tier 2 → Table 13.10 (in-process Express, real HTTP)
 ├── regression/               # Tier 3 → Table 13.11
-├── harness/                  # Tier 4 measurement (intent metric + dataset schema)
+├── harness/                  # Tier 4 measurement (intent keyword/LLM metric)
+├── datasets/                 # Tier 4b per-command accuracy harness → Table 13.12 (see datasets/README.md)
+├── usability/                # Table 13.14 analyzer: sessions/ + sus/ → usability_table41.md (see usability/README.md)
 ├── run_all.ts                # runs Tiers 1–3 + 4a → results/section13_results.md
-└── results/section13_results.md   # generated artifact (paste into the report)
+└── results/                  # section13_results.md + usability_table41.md (paste into the report)
 
 mobile/testing/               # mobile app (Bun test, run from mobile/)
 ├── preload.ts                # stubs native modules (BLE SDK, expo-*, MMKV, RN)
@@ -29,8 +31,11 @@ mobile/testing/               # mobile app (Bun test, run from mobile/)
 
 ```bash
 # Server (from repo root)
-bun run test            # unit + integration + regression
+bun run test            # unit + integration + regression (product tests → Tables 13.9–13.11)
 bun run test:harness    # + offline metrics → testing/results/section13_results.md
+bun run test:tooling    # unit tests for the usability + dataset analysis code (not a product table)
+bun run testing/usability/analyze.ts   # Table 13.14 from sessions/ + sus/ → results/usability_table41.md
+bun testing/datasets/run.ts            # per-command dataset accuracy (RUN_LIVE=1 to score live)
 
 # Mobile (from mobile/)
 cd mobile && bun run test

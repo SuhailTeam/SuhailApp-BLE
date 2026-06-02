@@ -7,13 +7,13 @@
 Overall: ALL GREEN ✅
 
 ## Table 13.9 — Unit tests
-Server unit: 80 pass / 0 fail
-Mobile unit: 37 pass / 0 fail
-Mobile state-machine (listening): 7 pass / 0 fail
-**Total unit: 124 pass / 0 fail — 100%**
+Server unit: 88 pass / 0 fail
+Mobile unit: 42 pass / 0 fail
+Mobile state-machine (listening): 11 pass / 0 fail
+**Total unit: 141 pass / 0 fail — 100%**
 
 ## Table 13.10 — Integration tests
-Relay HTTP integration (auth, photo flow, intent pipeline): 17 pass / 0 fail
+Relay HTTP integration (auth, photo flow, intent pipeline): 24 pass / 0 fail
 
 ## Table 13.11 — Regression tests
 Server known-fixes: 7 pass / 0 fail
@@ -43,5 +43,17 @@ Server known-fixes: 7 pass / 0 fail
 | Pre-capture / cue / photo round-trip latency | medians | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
 
 ## Table 13.14 — Usability
-Task success / time-to-first-word / recoveries / SUS: needs participants (usability sessions — PR #37 tooling + Google kit) (D)
+Participants: sessions 0/5 (missing P1, P2, P3, P4, P5) · SUS 0/5 (missing P1, P2, P3, P4, P5) — NO DATA
+
+| Measure | Value | n |
+|---|---|---|
+| Task success rate (overall) | needs-participants (D) | — |
+| Time-to-first-spoken-word (median, IQR) | needs-participants (D) | — |
+| End-of-speech → first word (median) | needs-participants (D) | — |
+| Total turn (median) | needs-participants (D) | — |
+| Recoveries per task (mean) | needs-participants (D) | — |
+| SUS (mean, 0–100) | needs-participants (D) | — |
+
+---
+Report-analysis tooling tests (validate the usability + dataset scripts; NOT part of Tables 13.9–13.11): 47 pass / 0 fail
 
