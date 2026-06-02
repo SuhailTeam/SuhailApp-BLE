@@ -1,0 +1,20 @@
+{"text": "what's around me right now", "expected": "scene-summarize"}
+{"text": "what am I looking at", "expected": "scene-summarize"}
+{"text": "what objects are in front of me", "expected": "scene-summarize"}
+{"text": "what does this sign say", "expected": "ocr-read-text"}
+{"text": "can you read the text on this paper", "expected": "ocr-read-text"}
+{"text": "what's written on this label", "expected": "ocr-read-text"}
+{"text": "identify the person in front of me", "expected": "face-recognize"}
+{"text": "do you recognize this person", "expected": "face-recognize"}
+{"text": "remember this person's face", "expected": "face-enroll"}
+{"text": "save this face for later", "expected": "face-enroll"}
+{"text": "where are my keys", "expected": "find-object"}
+{"text": "help me locate my phone", "expected": "find-object"}
+{"text": "how much money am I holding", "expected": "currency-recognize"}
+{"text": "count the cash in my hand", "expected": "currency-recognize"}
+{"text": "what color is this shirt", "expected": "color-detect"}
+{"text": "what's the color of this mug", "expected": "color-detect"}
+{"text": "is the door open or closed", "expected": "visual-qa"}
+{"text": "are there any people in the room", "expected": "visual-qa"}
+{"text": "what time is it", "expected": "unknown"}
+{"text": "tell me a joke", "expected": "unknown"}
