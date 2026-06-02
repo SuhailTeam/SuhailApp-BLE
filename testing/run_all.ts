@@ -107,7 +107,10 @@ async function main(): Promise<void> {
   for (const { label, cmd } of cmdRows) {
     const r = datasets.byCommand[cmd];
     const acc = r && r.accuracy != null ? `${pct(r.accuracy)} (n=${r.n}, B — live)` : `${NEEDS_DATA} (B)`;
-    lines.push(`| ${label} | ${acc} | ${NEEDS_DEVICE} (C) |`);
+    // E2E latency = on-device total-turn median, captured from the usability sessions (Table 13.14).
+    const lat = usability.aggregate?.totalByCommand[cmd];
+    const latCell = lat ? `${lat.median.toFixed(2)}s (median, n=${lat.n}, on-device — C)` : `${NEEDS_DEVICE} (C)`;
+    lines.push(`| ${label} | ${acc} | ${latCell} |`);
   }
   lines.push("");
 

@@ -1,0 +1,9 @@
+iso,task,command,timeToFirstWord_s,endUtterance_to_firstWord_s,total_s,transcript
+2026-06-02T17:10:41.327Z,1 · scene-summarize,scene-summarize,12.06,5.68,25.18,Describe my surroundings.
+2026-06-02T17:11:05.668Z,2 · ocr-read-text,ocr-read-text,11.41,4.41,15.86,This text-
+2026-06-02T17:11:24.839Z,3 · face-recognize,face-recognize,10.16,3.46,11.63,Who is this?
+2026-06-02T17:11:42.060Z,4 · face-enroll,face-enroll,7.58,1.38,10.79,Enroll this person.
+2026-06-02T17:12:14.042Z,5 · find-object,find-object,11.62,4.62,14.81,Find my mouse.
+2026-06-02T17:12:37.096Z,6 · currency-recognize,currency-recognize,13.07,5.11,15.73,Recognize currency.
+2026-06-02T17:13:07.481Z,7 · visual-qa,scene-summarize,12.43,5.26,26.43,What's on my table?
+2026-06-02T17:13:23.221Z,8 · color-detect,color-detect,11.32,5.05,13.01,Detect color.

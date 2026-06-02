@@ -5,42 +5,42 @@
 > needs-participants — never fabricated. Headline = pooled median + IQR of
 > time-to-first-spoken-word (inclusive / linear-interpolation quantiles).
 
-Participants: sessions 0/5 (missing P1, P2, P3, P4, P5) · SUS 0/5 (missing P1, P2, P3, P4, P5) — NO DATA
+Participants: sessions 5/5 · SUS 5/5 — FINAL
 
 ## Aggregate
 
 
 | Measure | Value | n |
 |---|---|---|
-| Task success rate (overall) | needs-participants (D) | — |
-| Time-to-first-spoken-word (median, IQR) | needs-participants (D) | — |
-| End-of-speech → first word (median) | needs-participants (D) | — |
-| Total turn (median) | needs-participants (D) | — |
-| Recoveries per task (mean) | needs-participants (D) | — |
-| SUS (mean, 0–100) | needs-participants (D) | — |
+| Task success rate (overall) | 84% (derived) | 38 tasks |
+| Time-to-first-spoken-word (median, IQR) | median 12.14s · IQR 10.30s–13.79s | 48 turns |
+| End-of-speech → first word (median) | 5.26s | 48 |
+| Total turn (median) | 17.09s | 48 |
+| Recoveries per task (mean) | 0.25 | 38 tasks |
+| SUS (mean, 0–100) | 74.5 | 5 |
 
 ## Per command
 
 | Command | Task success | Mean recoveries | Total turn (median, on-device E2E latency) |
 |---|---|---|---|
-| scene-summarize | needs-participants (D) | needs-participants (D) | needs-device |
-| ocr-read-text | needs-participants (D) | needs-participants (D) | needs-device |
-| face-recognize | needs-participants (D) | needs-participants (D) | needs-device |
-| face-enroll | needs-participants (D) | needs-participants (D) | needs-device |
-| find-object | needs-participants (D) | needs-participants (D) | needs-device |
-| currency-recognize | needs-participants (D) | needs-participants (D) | needs-device |
-| visual-qa | needs-participants (D) | needs-participants (D) | needs-device |
-| color-detect | needs-participants (D) | needs-participants (D) | needs-device |
+| scene-summarize | 100% | 0.80 | 25.18s |
+| ocr-read-text | 100% | 0.20 | 16.71s |
+| face-recognize | 100% | 0.20 | 11.01s |
+| face-enroll | 100% | 0.00 | 10.79s |
+| find-object | 100% | 0.20 | 16.09s |
+| currency-recognize | 100% | 0.00 | 15.31s |
+| visual-qa | 20% | 0.20 | 28.30s |
+| color-detect | 60% | 0.40 | 17.61s |
 
 ## Per participant
 
 | Participant | Turns | Tasks | Time-to-first-word (median) | Success | SUS |
 |---|---|---|---|---|---|
-| P1 | needs-participants (D) | — | needs-participants (D) | needs-participants (D) | needs-participants (D) |
-| P2 | needs-participants (D) | — | needs-participants (D) | needs-participants (D) | needs-participants (D) |
-| P3 | needs-participants (D) | — | needs-participants (D) | needs-participants (D) | needs-participants (D) |
-| P4 | needs-participants (D) | — | needs-participants (D) | needs-participants (D) | needs-participants (D) |
-| P5 | needs-participants (D) | — | needs-participants (D) | needs-participants (D) | needs-participants (D) |
+| P1 | 13 | 8 | 12.39s | 100% (derived) | 67.5 |
+| P2 | 9 | 7 | 12.14s | 71% (derived) | 82.5 |
+| P3 | 10 | 8 | 15.88s | 75% (derived) | 75.0 |
+| P4 | 8 | 7 | 12.07s | 86% (derived) | 67.5 |
+| P5 | 8 | 8 | 11.52s | 88% (derived) | 80.0 |
 
 ## Method notes
 
