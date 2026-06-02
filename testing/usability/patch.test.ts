@@ -37,4 +37,17 @@ describe("replaceSection", () => {
     const out = replaceSection(doc, "A", ["replaced"]);
     expect(out).toBe("## A\nreplaced\n## B\n2\n");
   });
+
+  test("stops at a `---` thematic break, preserving a trailing footer", () => {
+    // mirrors section13: Table 13.14 is the last `## ` section, followed by a --- footer
+    const doc = "## Table 13.14 — Usability\nold\n\n---\nfooter line\n";
+    const out = replaceSection(doc, "Table 13.14 — Usability", ["new", ""]);
+    expect(out).toBe("## Table 13.14 — Usability\nnew\n\n---\nfooter line\n");
+  });
+
+  test("is idempotent when re-rendering the same body before a footer", () => {
+    const doc = "## T\na\nb\n\n---\nfooter\n";
+    const once = replaceSection(doc, "T", ["a", "b", ""]);
+    expect(replaceSection(once, "T", ["a", "b", ""])).toBe(once);
+  });
 });

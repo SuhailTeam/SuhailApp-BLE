@@ -28,7 +28,10 @@ export function replaceSection(md: string, heading: string, body: string[]): str
 
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (lines[i]!.startsWith("## ")) {
+    const l = lines[i]!;
+    // Stop at the next section heading or a `---` thematic break, so trailing
+    // content (e.g. the tooling-tests footer) is never swallowed.
+    if (l.startsWith("## ") || l.trim() === "---") {
       end = i;
       break;
     }
