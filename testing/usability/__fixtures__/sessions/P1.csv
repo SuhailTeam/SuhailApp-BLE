@@ -1,0 +1,4 @@
+iso,task,command,timeToFirstWord_s,endUtterance_to_firstWord_s,total_s,transcript,success
+2026-06-01T10:00:00.000Z,1 · scene-summarize,scene-summarize,3.00,1.00,4.00,,1
+2026-06-01T10:01:00.000Z,1 · scene-summarize,scene-summarize,3.50,1.20,4.50,"describe, please",1
+2026-06-01T10:02:00.000Z,2 · ocr-read-text,ocr-read-text,4.00,1.50,5.00,menu,0
