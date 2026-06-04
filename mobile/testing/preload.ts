@@ -70,6 +70,7 @@ mock.module("../src/ble/camera", () => ({
 mock.module("../src/ble/mic", () => ({
   startCapture: async () => null,
   cancelCapture: async () => {},
+  stopCapture: async () => null,
 }));
 mock.module("../src/ble/connection", () => ({
   onGlassesDisconnected: () => {},

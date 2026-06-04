@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton, Card, SectionHeader, Screen, StatusDot } from "../components";
 import { makeStyles, useTheme } from "../theme";
 import { ui, useUi } from "../i18n/ui";
-import { useBluetoothSession } from "../ble/connection";
+import { useBluetoothSession, setAutoReconnectSuppressed } from "../ble/connection";
 import { useBatteryStatus, useButtonPress, useTouchEvent } from "../ble/events";
 import { useActivity } from "../state/activity";
 import { activate, interruptAndListen, repeatLast, useListening } from "../state/listening";
@@ -83,6 +83,7 @@ export default function HomeScreen(): React.ReactElement {
 
   const onConnectDefault = useCallback(async () => {
     try {
+      setAutoReconnectSuppressed(false); // user is (re)connecting → allow auto-reconnect
       await session.connectDefault();
     } catch (err) {
       logger.error("connectDefault failed", err);
@@ -91,6 +92,7 @@ export default function HomeScreen(): React.ReactElement {
 
   const onDisconnect = useCallback(async () => {
     try {
+      setAutoReconnectSuppressed(true); // deliberate disconnect → don't auto-reconnect
       await session.disconnect();
     } catch (err) {
       logger.error("disconnect failed", err);

@@ -39,6 +39,17 @@ const queue: QueueItem[] = [];
 let isProcessing = false;
 
 /**
+ * Stall watchdog window. expo-audio has NO failure/error callback, so a chunk
+ * that never decodes (corrupt/truncated file) or an A2DP link glitch mid-file
+ * would leave the play() promise pending forever — freezing the listening
+ * machine in "processing" with no recovery until a manual swipe. We reject the
+ * promise if playback makes no forward progress for this long. The timer is
+ * RESET on every advance of currentTime, so long-but-healthy audio (e.g. a 400-
+ * char OCR sentence) is never cut off — only a true stall trips it.
+ */
+const PLAYBACK_STALL_MS = 8_000;
+
+/**
  * Plays an audio source through the active output (Bluetooth A2DP → Mentra Live
  * speaker when paired). Serialized — multiple calls queue and play one after
  * another. The returned promise resolves when playback finishes naturally OR
@@ -77,6 +88,7 @@ export function play(
  * forget if you don't care about ordering.
  */
 export async function stopAll(): Promise<void> {
+  clearStallTimer();
   const drained = queue.splice(0, queue.length);
   for (const item of drained) {
     item.reject(new Error("interrupted"));
@@ -102,6 +114,14 @@ export async function stopAll(): Promise<void> {
 let currentPlayer: ReturnType<typeof createAudioPlayer> | null = null;
 let currentResolve: (() => void) | null = null;
 let currentReject: ((reason?: unknown) => void) | null = null;
+let currentStallTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearStallTimer(): void {
+  if (currentStallTimer) {
+    clearTimeout(currentStallTimer);
+    currentStallTimer = null;
+  }
+}
 
 async function processQueue(): Promise<void> {
   if (isProcessing) return;
@@ -121,16 +141,37 @@ async function processQueue(): Promise<void> {
       currentPlayer = player;
       player.volume = next.volume;
 
-      const sub = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
-        if (status.didJustFinish) {
-          sub.remove();
-          try { player.remove(); } catch {}
-          if (currentPlayer === player) {
-            currentPlayer = null;
-            currentResolve = null;
-            currentReject = null;
-          }
-          resolve();
+      let settled = false;
+      let lastTime = -1;
+      let sub: ReturnType<typeof player.addListener> | null = null;
+
+      const cleanup = () => {
+        clearStallTimer();
+        sub?.remove();
+        try { player.remove(); } catch {}
+        if (currentPlayer === player) {
+          currentPlayer = null;
+          currentResolve = null;
+          currentReject = null;
+        }
+      };
+      const finish = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+      const fail = (err: unknown) => { if (settled) return; settled = true; cleanup(); reject(err); };
+
+      // (Re)arm the stall watchdog — called on entry and on every forward
+      // progress, so healthy long audio keeps it at bay and only a true stall
+      // (never-decodes / mid-file A2DP freeze) reaches the timeout.
+      const armStall = () => {
+        clearStallTimer();
+        currentStallTimer = setTimeout(() => fail(new Error("playback-timeout")), PLAYBACK_STALL_MS);
+      };
+      armStall();
+
+      sub = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+        if (status.didJustFinish) { finish(); return; }
+        if (status.currentTime > lastTime) {
+          lastTime = status.currentTime;
+          armStall(); // progress → reset the stall clock
         }
       });
 
@@ -142,9 +183,7 @@ async function processQueue(): Promise<void> {
         // Best-effort: instrumentation must never break playback.
         try { next.onStart?.(); } catch {}
       } catch (err) {
-        sub.remove();
-        try { player.remove(); } catch {}
-        reject(err);
+        fail(err);
       }
     });
 
