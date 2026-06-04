@@ -11,6 +11,8 @@
  *   RUN_LIVE=1 bun run testing/run_all.ts   # also runs the API-key accuracy tier
  */
 import { computeIntentMetrics } from "./harness/intent/run";
+import { computeUsabilityMetrics, renderUsabilityTable } from "./usability/analyze";
+import { computeDatasetMetrics } from "./datasets/run";
 
 const ROOT = `${import.meta.dir}/..`;
 const MOBILE = `${ROOT}/mobile`;
@@ -39,7 +41,6 @@ function pct(x: number): string {
 
 const NEEDS_DATA = "needs data collection (run with RUN_LIVE=1 + dataset)";
 const NEEDS_DEVICE = "needs device (Mentra Live — capture via mobile timeline / usability CSV)";
-const NEEDS_PARTICIPANTS = "needs participants (usability sessions — PR #37 tooling + Google kit)";
 
 async function main(): Promise<void> {
   console.log("Running suites…");
@@ -48,15 +49,21 @@ async function main(): Promise<void> {
   const serverRegression = await runSuite(ROOT, ["./testing/regression"]);
   const mobileUnit = await runSuite(MOBILE, ["./testing/unit"]);
   const mobileStateMachine = await runSuite(MOBILE, ["./testing/state-machine"]);
+  // Report-analysis tooling tests — validate the usability + dataset scripts. Kept
+  // OUT of the Chapter-13 product-test tables (13.9–13.11), which count only tests
+  // of the Suhail product, not of the report's own measurement code.
+  const tooling = await runSuite(ROOT, ["./testing/usability", "./testing/datasets"]);
 
   const unitPass = serverUnit.pass + mobileUnit.pass + mobileStateMachine.pass;
   const unitFail = serverUnit.fail + mobileUnit.fail + mobileStateMachine.fail;
 
   console.log("Computing offline functional metrics…");
   const intent = await computeIntentMetrics();
+  const usability = await computeUsabilityMetrics();
+  const datasets = await computeDatasetMetrics();
 
   const allGreen =
-    unitFail + serverIntegration.fail + serverRegression.fail === 0;
+    unitFail + serverIntegration.fail + serverRegression.fail + tooling.fail === 0;
 
   const lines: string[] = [];
   lines.push("# Suhail — Section 13 results (generated)");
@@ -87,17 +94,23 @@ async function main(): Promise<void> {
   lines.push("## Table 13.12 — Functional tests per command (success rate + latency)");
   lines.push("| Command | Success rate | E2E latency (median) |");
   lines.push("|---|---|---|");
-  for (const c of [
-    "Scene summarization",
-    "OCR",
-    "Face recognition",
-    "Face enrollment",
-    "Object finding",
-    "Currency recognition",
-    "Visual question answering",
-    "Color detection",
-  ]) {
-    lines.push(`| ${c} | ${NEEDS_DATA} (B) | ${NEEDS_DEVICE} (C) |`);
+  const cmdRows: Array<{ label: string; cmd: string }> = [
+    { label: "Scene summarization", cmd: "scene-summarize" },
+    { label: "OCR", cmd: "ocr-read-text" },
+    { label: "Face recognition", cmd: "face-recognize" },
+    { label: "Face enrollment", cmd: "face-enroll" },
+    { label: "Object finding", cmd: "find-object" },
+    { label: "Currency recognition", cmd: "currency-recognize" },
+    { label: "Visual question answering", cmd: "visual-qa" },
+    { label: "Color detection", cmd: "color-detect" },
+  ];
+  for (const { label, cmd } of cmdRows) {
+    const r = datasets.byCommand[cmd];
+    const acc = r && r.accuracy != null ? `${pct(r.accuracy)} (n=${r.n}, B — live)` : `${NEEDS_DATA} (B)`;
+    // E2E latency = on-device total-turn median, captured from the usability sessions (Table 13.14).
+    const lat = usability.aggregate?.totalByCommand[cmd];
+    const latCell = lat ? `${lat.median.toFixed(2)}s (median, n=${lat.n}, on-device — C)` : `${NEEDS_DEVICE} (C)`;
+    lines.push(`| ${label} | ${acc} | ${latCell} |`);
   }
   lines.push("");
 
@@ -118,7 +131,12 @@ async function main(): Promise<void> {
   lines.push("");
 
   lines.push("## Table 13.14 — Usability");
-  lines.push(`Task success / time-to-first-word / recoveries / SUS: ${NEEDS_PARTICIPANTS} (D)`);
+  lines.push(...renderUsabilityTable(usability));
+
+  lines.push("---");
+  lines.push(
+    `Report-analysis tooling tests (validate the usability + dataset scripts; NOT part of Tables 13.9–13.11): ${tooling.pass} pass / ${tooling.fail} fail`,
+  );
   lines.push("");
 
   const outPath = `${ROOT}/testing/results/section13_results.md`;

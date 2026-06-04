@@ -12,6 +12,7 @@
     "test:unit": "bun test ./testing/unit",
     "test:integration": "bun test ./testing/integration",
     "test:regression": "bun test ./testing/regression",
+    "test:tooling": "bun test ./testing/usability ./testing/datasets",
     "test:harness": "bun run testing/run_all.ts"
   },
   "dependencies": {
