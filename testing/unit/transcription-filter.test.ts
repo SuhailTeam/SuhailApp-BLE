@@ -26,6 +26,15 @@ describe("isValidTranscription (EP / garbled-input partitions)", () => {
     expect(isValidTranscription("go go go go go", "en")).toBe(false);
   });
 
+  test("rejects Arabic-script stutter (Unicode-aware repetition guard)", () => {
+    expect(isValidTranscription("من من من من من", "ar")).toBe(false);
+    expect(isValidTranscription("وصف وصف وصف وصف", "ar")).toBe(false);
+  });
+
+  test("does not flag a normal Arabic command as stutter", () => {
+    expect(isValidTranscription("صف ما حولي", "ar")).toBe(true);
+  });
+
   test("rejects ar-labelled text containing no Arabic script", () => {
     expect(isValidTranscription("hello there friend", "ar")).toBe(false);
   });

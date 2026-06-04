@@ -55,6 +55,8 @@ export interface SynthesizeOptions {
   format?: AudioFormat;
   /** Model override; defaults to config.elevenLabsModel. */
   modelId?: string;
+  /** Abort signal — aborts the underlying fetch (per-call timeout / client disconnect). */
+  signal?: AbortSignal;
 }
 
 /** Resolves the final voice id from override > preset > config default. */
@@ -126,6 +128,7 @@ export async function synthesize(opts: SynthesizeOptions): Promise<{ audio: Buff
       "Accept": "*/*",
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (!response.ok) {

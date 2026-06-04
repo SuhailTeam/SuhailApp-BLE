@@ -2,7 +2,10 @@ import type { Language } from "../types";
 
 const ARABIC_SCRIPT = /[\u0600-\u06FF]/;
 const SPECIAL_CHARS = /[^\p{L}\p{N}\s]/gu;
-const REPEATED_WORD = /\b(\w+)\s+(\1\s+){3,}/i;
+// Unicode-aware: \b/\w only match ASCII, so the old form was a no-op for Arabic
+// (the default language) \u2014 a stuttered "\u0645\u0646 \u0645\u0646 \u0645\u0646 \u0645\u0646" sailed through. Match any
+// script's word repeated 4+ times in a row.
+const REPEATED_WORD = /(\p{L}[\p{L}\p{N}]*)(?:\s+\1){3,}/iu;
 
 /**
  * Validates a transcription before it reaches the command router.

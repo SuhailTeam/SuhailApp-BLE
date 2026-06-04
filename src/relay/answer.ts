@@ -54,6 +54,11 @@ const NO_TEXT_MESSAGE: Record<Language, string> = {
 /** How long the server waits for the glasses' photo upload before giving up. */
 const PHOTO_WAIT_MS = 20_000;
 
+/** Per-sentence TTS ceiling. A stalled ElevenLabs call must not block the rest
+ *  of the stream (no further chunks / final / done) — on timeout we skip that
+ *  sentence's audio and keep going, exactly like a thrown TTS error. */
+const TTS_TIMEOUT_MS = 8_000;
+
 function namesPrefix(names: string[], language: Language): string {
   if (names.length === 0) return "";
   const joiner = language === "ar" ? "، " : ", ";
@@ -150,15 +155,25 @@ export async function answerHandler(req: any, res: any): Promise<void> {
   const emit = async (chunkText: string): Promise<void> => {
     const t = chunkText.trim();
     if (!t || ac.signal.aborted) return;
+    // Bound this one synthesize() call: a hung ElevenLabs fetch would otherwise
+    // stall the whole for-await loop. Fold in the client-disconnect signal so a
+    // cancel aborts in-flight TTS too.
+    const ttsCtl = new AbortController();
+    const onAbort = () => ttsCtl.abort();
+    ac.signal.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => ttsCtl.abort(), TTS_TIMEOUT_MS);
     let audioB64 = "";
     let format: AudioFormat = "mp3_44100_64";
     try {
-      const r = await synthesize({ text: t, format: "mp3_44100_64", voicePreset, speed });
+      const r = await synthesize({ text: t, format: "mp3_44100_64", voicePreset, speed, signal: ttsCtl.signal });
       audioB64 = r.audio.toString("base64");
       format = r.format;
     } catch (err) {
-      logger.warn(`TTS failed for seq ${seq} — skipping audio:`, err);
+      logger.warn(`TTS failed/timed out for seq ${seq} — skipping audio:`, err);
       return; // best-effort: skip this chunk's audio; text still lands in `final`
+    } finally {
+      clearTimeout(timer);
+      ac.signal.removeEventListener("abort", onAbort);
     }
     if (ac.signal.aborted) return;
     write({ type: "chunk", seq: seq++, text: t, format, audio: audioB64 });
