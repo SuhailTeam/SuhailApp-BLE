@@ -72,6 +72,11 @@ export async function answerHandler(req: any, res: any): Promise<void> {
   const body = req.body ?? {};
   const text = typeof body.text === "string" ? body.text : "";
   const language: Language = body.language === "en" ? "en" : "ar";
+  // Voice settings ride along with the streamed turn so describe/read/VQA honour
+  // the user's speed + voice choice, exactly like the discrete /api/tts path.
+  // (synthesize() clamps speed to ElevenLabs' valid 0.7–1.2 band.)
+  const voicePreset = typeof body.voicePreset === "string" ? body.voicePreset : undefined;
+  const speed = typeof body.speed === "number" ? body.speed : undefined;
 
   if (text.trim().length === 0) {
     res.status(400).json({ error: "text is required" });
@@ -148,7 +153,7 @@ export async function answerHandler(req: any, res: any): Promise<void> {
     let audioB64 = "";
     let format: AudioFormat = "mp3_44100_64";
     try {
-      const r = await synthesize({ text: t, format: "mp3_44100_64" });
+      const r = await synthesize({ text: t, format: "mp3_44100_64", voicePreset, speed });
       audioB64 = r.audio.toString("base64");
       format = r.format;
     } catch (err) {
