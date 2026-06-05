@@ -30,7 +30,7 @@ function clamp(value: number, min: number, max: number): number {
 function sanitise(partial: Partial<AppearanceState>, base: AppearanceState): AppearanceState {
   return {
     themeMode:
-      partial.themeMode === "dark" || partial.themeMode === "highContrast"
+      partial.themeMode === "light" || partial.themeMode === "dark" || partial.themeMode === "highContrast"
         ? partial.themeMode
         : base.themeMode,
     textScale:

@@ -6,7 +6,7 @@ import type { TextStyle } from "react-native";
  * a future "light" mode is one palette + one union member away (no consumer
  * changes). See palettes.ts for the WCAG-checked hex values.
  */
-export type ThemeMode = "dark" | "highContrast";
+export type ThemeMode = "light" | "dark" | "highContrast";
 
 export type TypeRole = "display" | "title" | "body" | "label" | "caption";
 
@@ -14,6 +14,7 @@ export interface TypeStyle {
   fontSize: number;
   lineHeight: number;
   fontWeight: TextStyle["fontWeight"];
+  fontFamily?: string;
 }
 
 /**

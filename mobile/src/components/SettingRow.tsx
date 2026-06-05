@@ -1,12 +1,14 @@
 import React, { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { I18nManager, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { makeStyles, useTheme } from "../theme";
+import { useUi } from "../i18n/ui";
 
 interface SettingRowProps {
   label: string;
   children: React.ReactNode;
   /** Optional helper text under the label. */
   hint?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
 /**
@@ -14,14 +16,27 @@ interface SettingRowProps {
  * label and control stay distinct VoiceOver nodes (the control carries its own
  * role/state).
  */
-export function SettingRow({ label, children, hint }: SettingRowProps): React.ReactElement {
+export function SettingRow({ label, children, hint, style }: SettingRowProps): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { lang } = useUi();
+  const isRTL = lang === "ar";
+  
+  const labelAlignItems = isRTL
+    ? (I18nManager.isRTL ? "flex-start" : "flex-end")
+    : (I18nManager.isRTL ? "flex-end" : "flex-start");
+
+  const labelTextAlign = isRTL
+    ? (I18nManager.isRTL ? "left" : "right")
+    : (I18nManager.isRTL ? "right" : "left");
+
+  const flexDirection = isRTL ? (I18nManager.isRTL ? "row" : "row-reverse") : (I18nManager.isRTL ? "row-reverse" : "row");
+
   return (
-    <View style={styles.row}>
-      <View style={styles.labelWrap}>
-        <Text style={styles.label}>{label}</Text>
-        {hint ? <Text style={styles.hint}>{hint}</Text> : null}
+    <View style={[styles.row, { flexDirection }, style]}>
+      <View style={[styles.labelWrap, { alignItems: labelAlignItems }]}>
+        <Text style={[styles.label, { textAlign: labelTextAlign }]}>{label}</Text>
+        {hint ? <Text style={[styles.hint, { textAlign: labelTextAlign }]}>{hint}</Text> : null}
       </View>
       <View style={styles.control}>{children}</View>
     </View>

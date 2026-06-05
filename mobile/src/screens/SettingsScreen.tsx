@@ -8,12 +8,14 @@ import { ui, useUi } from "../i18n/ui";
 import type { Language } from "../i18n/messages";
 import { useSettings } from "../state/settings";
 import { useAppearance, TEXT_SCALE_STEP } from "../state/appearance";
+import { useOnboarding } from "../state/onboarding";
 
 export default function SettingsScreen(): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { t } = useUi();
+  const { t, lang } = useUi();
   const navigation = useNavigation();
+  const isRTL = lang === "ar";
   const settings = useSettings();
   const themeMode = useAppearance((s) => s.themeMode);
   const textScale = useAppearance((s) => s.textScale);
@@ -35,6 +37,7 @@ export default function SettingsScreen(): React.ReactElement {
   const onReset = () => {
     settings.reset();
     resetAppearance();
+    useOnboarding.getState().reset();
   };
 
   return (
@@ -43,7 +46,10 @@ export default function SettingsScreen(): React.ReactElement {
       <SectionHeader title={t(ui.settings.voiceSection)} />
       <Card>
         <SettingRow label={t(ui.settings.language)}>
-          <View style={styles.chipsRow}>
+          <View style={[styles.chipsRow, {
+            flexDirection: isRTL ? (I18nManager.isRTL ? "row" : "row-reverse") : (I18nManager.isRTL ? "row-reverse" : "row"),
+            justifyContent: isRTL ? (I18nManager.isRTL ? "flex-end" : "flex-start") : (I18nManager.isRTL ? "flex-start" : "flex-end")
+          }]}>
             <Chip label={t(ui.settings.arabic)} selected={settings.language === "ar"} onPress={() => onLanguage("ar")} />
             <Chip label={t(ui.settings.english)} selected={settings.language === "en"} onPress={() => onLanguage("en")} />
           </View>
@@ -74,7 +80,10 @@ export default function SettingsScreen(): React.ReactElement {
         </SettingRow>
         <View style={styles.divider} />
         <SettingRow label={t(ui.settings.voice)}>
-          <View style={styles.chipsRow}>
+          <View style={[styles.chipsRow, {
+            flexDirection: isRTL ? (I18nManager.isRTL ? "row" : "row-reverse") : (I18nManager.isRTL ? "row-reverse" : "row"),
+            justifyContent: isRTL ? (I18nManager.isRTL ? "flex-end" : "flex-start") : (I18nManager.isRTL ? "flex-start" : "flex-end")
+          }]}>
             <Chip label={t(ui.settings.voiceDefault)} selected={settings.voicePreset === "default"} onPress={() => settings.update({ voicePreset: "default" })} />
             <Chip label={t(ui.settings.voiceMale)} selected={settings.voicePreset === "male"} onPress={() => settings.update({ voicePreset: "male" })} />
             <Chip label={t(ui.settings.voiceFemale)} selected={settings.voicePreset === "female"} onPress={() => settings.update({ voicePreset: "female" })} />
@@ -86,7 +95,11 @@ export default function SettingsScreen(): React.ReactElement {
       <SectionHeader title={t(ui.settings.appearanceSection)} />
       <Card>
         <SettingRow label={t(ui.settings.theme)}>
-          <View style={styles.chipsRow}>
+          <View style={[styles.chipsRow, {
+            flexDirection: isRTL ? (I18nManager.isRTL ? "row" : "row-reverse") : (I18nManager.isRTL ? "row-reverse" : "row"),
+            justifyContent: isRTL ? (I18nManager.isRTL ? "flex-end" : "flex-start") : (I18nManager.isRTL ? "flex-start" : "flex-end")
+          }]}>
+            <Chip label={t(ui.settings.themeLight)} selected={themeMode === "light"} onPress={() => updateAppearance({ themeMode: "light" })} />
             <Chip label={t(ui.settings.themeDark)} selected={themeMode === "dark"} onPress={() => updateAppearance({ themeMode: "dark" })} />
             <Chip label={t(ui.settings.themeHighContrast)} selected={themeMode === "highContrast"} onPress={() => updateAppearance({ themeMode: "highContrast" })} />
           </View>
@@ -108,12 +121,22 @@ export default function SettingsScreen(): React.ReactElement {
       {/* Testing tools (usability-study data capture) */}
       <SectionHeader title={t(ui.settings.testingSection)} />
       <Card>
-        <SettingRow label={t(ui.settings.usabilityTest)}>
+        <SettingRow label={t(ui.settings.usabilityTest)} style={{ flexWrap: "nowrap" }}>
           <AppButton
             variant="secondary"
             iconName="flask-outline"
             label={t(ui.usability.title)}
             onPress={() => navigation.navigate("UsabilityTest")}
+            fullWidth={false}
+          />
+        </SettingRow>
+        <View style={styles.divider} />
+        <SettingRow label={t(ui.activity.title)} style={{ flexWrap: "nowrap" }}>
+          <AppButton
+            variant="secondary"
+            iconName="time-outline"
+            label={t(ui.activity.title)}
+            onPress={() => navigation.navigate("Activity")}
             fullWidth={false}
           />
         </SettingRow>
