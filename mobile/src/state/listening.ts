@@ -4,7 +4,7 @@ import { speak } from "../audio/tts";
 import { stopAll as stopAllAudio } from "../audio/playback";
 import { startThinkingCue, stopThinkingCue } from "../audio/thinkingCue";
 import { runStreamedAnswer } from "../audio/streamingTts";
-import { cancelCapture, startCapture } from "../ble/mic";
+import { cancelCapture, startCapture, stopCapture } from "../ble/mic";
 import { capturePhoto, resolvePhoto, GLASSES_DISCONNECTED_ERROR, type CapturedPhoto } from "../ble/camera";
 import { onGlassesDisconnected } from "../ble/connection";
 import { transcribe as sttTranscribe } from "../relay/stt";
@@ -213,6 +213,25 @@ export async function interruptAndListen(): Promise<void> {
  * bilingual message.
  */
 export async function repeatLast(): Promise<void> {
+  // If a turn is in flight (active listening or processing), cancel it FIRST.
+  // Otherwise the repeated answer is enqueued behind / interleaved with the
+  // in-flight turn's audio on the serialized playback queue, and the two race
+  // the `speaking`/echo-guard flags — producing jumbled old+new speech. Mirrors
+  // interruptAndListen's cancel preamble but ends in speak, not re-listen.
+  if (useListening.getState().state !== "idle") {
+    logger.info("repeat during an active turn — cancelling it first");
+    activationToken++;
+    sttAbort?.abort();
+    sttAbort = null;
+    abortPreCapture();
+    clearEnrollmentTimeout();
+    if (interruptEnrollment()) logActivity("enrollment interrupted by repeat");
+    await cancelCapture().catch(() => {});
+    await stopThinkingCue();
+    await stopAllAudio().catch(() => {});
+    useListening.setState({ state: "idle", speaking: false });
+  }
+
   const text = getLastResponse();
   const language = getSettings().language;
   const toSay = text ?? messages.repeatNoHistory[language];
@@ -597,11 +616,15 @@ async function runListenSession(withCue: boolean): Promise<void> {
   // Grace window starts AFTER the cue (so the chime doesn't eat into it).
   useListening.setState({ activatedAt: Date.now() });
 
-  // Failsafe: if neither silence-end nor an explicit stop fires, force cancel.
+  // Failsafe: if the 1.5s silence-end never fires (continuous speech, or a noisy
+  // room that keeps resetting the silence timer), finalise+submit what we have
+  // at the 10s mark rather than DISCARDING it — a long question shouldn't become
+  // "didn't catch that" when the audio was captured cleanly. stopCapture()
+  // returns null for a too-short/empty buffer, so the no-speech case is unchanged.
   failsafeTimer = setTimeout(() => {
     if (myToken !== activationToken) return;
-    logger.info(`failsafe timeout (${LISTENING_TIMEOUT_MS}ms) — cancelling capture`);
-    void cancelCapture().catch(() => {});
+    logger.info(`failsafe timeout (${LISTENING_TIMEOUT_MS}ms) — finalising capture`);
+    void stopCapture().catch(() => {});
   }, LISTENING_TIMEOUT_MS);
 
   // Start mic capture. Resolves with audio when silence detection fires,

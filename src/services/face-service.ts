@@ -20,7 +20,15 @@ const logger = new Logger("FaceService");
 
 const collectionId = config.awsRekognitionCollectionId;
 const region = config.awsRegion;
-const rekognition = new RekognitionClient({ region });
+// Bound every Rekognition call so a slow/stalled AWS connection (demo Wi-Fi)
+// can't hang a turn indefinitely — most critically the names-prefix step that
+// runs before any scene sentence streams in /api/answer. The smithy default is
+// 0 (no timeout). connectionTimeout fails fast if we can't reach AWS;
+// requestTimeout caps a connected-but-silent socket.
+const rekognition = new RekognitionClient({
+  region,
+  requestHandler: { connectionTimeout: 3_000, requestTimeout: 8_000 },
+});
 let collectionReadyPromise: Promise<void> | null = null;
 
 /** Encode a name to an ASCII-safe ExternalImageId (hex of UTF-8 bytes). */
@@ -333,7 +341,16 @@ export async function recognizeAllFaces(imageBase64: string): Promise<MultiFaceR
   const results = await Promise.allSettled(
     facesToProcess.map(async (face): Promise<FaceMatch> => {
       const box = face.BoundingBox;
-      if (!box || !box.Left || !box.Top || !box.Width || !box.Height) {
+      // Presence check by nullish, NOT truthiness: Rekognition coords are
+      // normalized 0–1, so a face flush against the top/left edge legitimately
+      // has Left=0 or Top=0. `!0` would wrongly drop that enrolled person as
+      // "unknown" in a group "who is here" shot. Width/Height must be positive.
+      if (
+        !box ||
+        box.Left == null || box.Top == null ||
+        box.Width == null || box.Height == null ||
+        box.Width <= 0 || box.Height <= 0
+      ) {
         return { name: null, confidence: 0, isKnown: false };
       }
 

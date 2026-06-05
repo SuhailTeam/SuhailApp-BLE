@@ -1,0 +1,14 @@
+iso,task,command,timeToFirstWord_s,endUtterance_to_firstWord_s,total_s,transcript
+2026-06-02T16:24:31.606Z,1 · scene-summarize,scene-summarize,19.17,14.41,31.17,Describe-
+2026-06-02T16:25:00.595Z,1 · scene-summarize,scene-summarize,10.88,5.52,26.26,Describe.
+2026-06-02T16:25:43.841Z,2 · ocr-read-text,ocr-read-text,9.91,4.48,37.22,Read this.
+2026-06-02T16:26:05.995Z,4 · face-enroll,face-enroll,7.38,1.58,10.47,Enroll this person.
+2026-06-02T16:27:14.528Z,3 · face-recognize,face-recognize,9.27,3.18,10.61,Who is this?
+2026-06-02T16:27:49.052Z,5 · find-object,visual-qa,20.49,14.22,26.53,Where is my mouse?
+2026-06-02T16:28:31.376Z,5 · find-object,find-object,12.39,5.62,16.95,Where is my gaming controller?
+2026-06-02T16:28:58.827Z,6 · currency-recognize,currency-recognize,10.35,4.86,12.55,Money.
+2026-06-02T16:29:37.299Z,7 · visual-qa,visual-qa,21.99,15.54,32.66,What's on my cable?
+2026-06-02T16:30:10.056Z,7 · visual-qa,scene-summarize,12.92,6.64,29.90,What's on my table?
+2026-06-02T16:30:31.628Z,8 · color-detect,find-object,11.91,5.32,14.15,Toller is my gaming controller.
+2026-06-02T16:30:51.697Z,8 · color-detect,find-object,13.28,6.03,17.24,My gaming controller.
+2026-06-02T16:31:15.754Z,8 · color-detect,color-detect,19.83,11.68,21.43,What color is my gaming controller?

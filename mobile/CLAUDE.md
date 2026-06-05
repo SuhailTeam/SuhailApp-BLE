@@ -6,7 +6,7 @@
 
 This directory holds the **React Native / Expo mobile app** that talks **directly to Mentra Live glasses over Bluetooth LE** using `@mentra/bluetooth-sdk`. It is a complete rewrite of the cloud-based Suhail app, undertaken because the team wants direct phone↔glasses control with no MentraOS Cloud dependency. The fork is `SuhailTeam/SuhailApp-BLE`; the original cloud app lives at `SuhailTeam/SuhailApp` and continues to work unchanged.
 
-**Status:** Phase 0 — scaffold only. No code yet. The phased plan lives in the research doc at [`C:\Users\User\.claude\plans\i-want-you-to-curried-steele.md`](../../../../../.claude/plans/i-want-you-to-curried-steele.md) and is summarized in section [Phased Status](#phased-status) below.
+**Status:** Built and shipping. All 8 voice commands, the BLE audio pipeline (PCM mic → STT → streaming answer → TTS over BLE), the companion UI (onboarding + 4 tabs, WCAG theme), and the section-13.8 usability-test instrumentation are implemented under `mobile/src/`. What's left is on-device hardening and tuning (Phase F). The per-phase breakdown is in [Phased status](#phased-status) below.
 
 ## Two halves of this repo
 
@@ -15,24 +15,26 @@ This directory holds the **React Native / Expo mobile app** that talks **directl
 | **Server / AI relay** | repo root (`src/`) | Stateless HTTPS API. Holds all secrets (OpenRouter, AWS Rekognition, ElevenLabs). Wraps the existing vision/face/intent services as REST endpoints. Deployed to Railway. | Mobile app (HTTPS) |
 | **Mobile app** | `mobile/` (this dir) | Native iOS + Android app via React Native + Expo dev build. Owns session lifecycle, listening state machine, audio pipeline, UI. Holds no secrets. | Glasses (BLE) + Server (HTTPS) |
 
-The two halves share types from [`src/types/index.ts`](../src/types/index.ts) (copied or symlinked into mobile; pick whichever works once we add tooling).
+The two halves share types from [`src/types/index.ts`](../src/types/index.ts) (the relay's types; mobile mirrors the shapes it needs).
 
-## Tech stack (target)
+> **Path convention in this file.** `mobile/src/...`, `src/relay/...`, and `src/services/{vision,face,elevenlabs-*}.ts` point at **this repo** (the mobile app and the relay server). References to the cloud app's `src/commands/*`, `src/app.ts`, `src/services/tts-service.ts`, `src/services/settings-store.ts`, or `src/services/cue-service.ts` describe the **original cloud app** in the separate `SuhailTeam/SuhailApp` repo — used as the porting *spec*, not present here, so those `../src/...` links won't resolve in this repo by design.
 
-- **Framework:** React Native via Expo (managed workflow with native dev/prod builds — Expo Go **does not work**, the BLE SDK requires native modules)
+## Tech stack (as built)
+
+- **Framework:** React Native 0.76 via Expo SDK 52 (dev/prod native builds — Expo Go **does not work**, the BLE SDK requires native modules)
 - **Language:** TypeScript (strict)
 - **Min platforms:** iOS 15.1+, Android SDK 28+
-- **BLE SDK:** `@mentra/bluetooth-sdk` 0.1.6 (**beta** — pin version, watch release notes)
-- **State:** Zustand (recommended; light, no boilerplate, easy to mirror our existing in-memory maps)
-- **Storage:** MMKV (fast, synchronous, encrypted) for settings + last-response cache. SQLite via `op-sqlite` only if we need it for the activity log.
-- **Audio:** `@mentra/bluetooth-sdk` for PCM I/O over BLE. STT + TTS via ElevenLabs Conversational AI WebSocket (the pattern from the starter kit's [`examples/react-native-elevenlabs-audio`](https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/tree/main/examples/react-native-elevenlabs-audio)).
-- **Builds:** `eas build` for iOS + Android. iOS requires a Mac (or EAS cloud builds).
-- **Navigation:** React Navigation (native stack + bottom tabs) to match the 4-tab webview the cloud version has.
-- **Package manager:** Bun (for monorepo consistency with the root server) or npm — TBD.
+- **BLE SDK:** `@mentra/bluetooth-sdk` 0.1.6 (**beta** — pinned exact; watch release notes)
+- **State:** Zustand — the `src/state/*` stores (settings, appearance, onboarding, activity, usabilityLog, lastResponse, enrollment, listening, deviceId)
+- **Storage:** `react-native-mmkv` (fast, synchronous) for settings/appearance/onboarding/deviceId. The activity log is an in-memory rolling store (no SQLite).
+- **Audio:** `@mentra/bluetooth-sdk` for PCM I/O over BLE. STT + TTS run **server-side on the relay** — PCM → `POST /api/stt` (ElevenLabs Scribe), text → `POST /api/tts` (ElevenLabs), and the hot turn streams audio back via `POST /api/answer` (NDJSON). There is **no ElevenLabs WebSocket on the device** — the CAI-WebSocket plan from the starter kit was dropped (see [Audio pipeline](#audio-pipeline-the-critical-piece)).
+- **Builds:** `eas build` for iOS + Android, or local `expo run:ios` / `expo run:android`. iOS requires a Mac (or EAS cloud builds).
+- **Navigation:** React Navigation v7 (native stack + bottom tabs).
+- **Package manager:** **Bun** (decided — `bun.lock`, `bunfig.toml`, and `package.json` `patchedDependencies`, which bun applies on install; npm/yarn skip the patches and break iOS 26.5+ builds — see `mobile/README.md`).
 
 ## Mentra Live hardware (recap)
 
-Same hardware as the cloud version. See root [CLAUDE.md → Mentra Live Hardware](../CLAUDE.md#mentra-live-hardware). One thing to re-emphasize: **no display**. Every response goes through the glasses speaker. UI on the phone is for setup, contacts, settings, and activity log — **not** for the moment-to-moment user experience.
+Same hardware as the cloud version — see the **Hardware note** in the root [CLAUDE.md](../CLAUDE.md). One thing to re-emphasize: **no display**. Every response goes through the glasses speaker. UI on the phone is for setup, contacts, settings, and activity log — **not** for the moment-to-moment user experience.
 
 ## How the BLE SDK works
 
@@ -67,7 +69,7 @@ The full SDK docs live at https://bluetooth-sdk-docs.mentra.glass/. The starter 
 ### Connection lifecycle
 
 - Scan for glasses → request pairing → connect → subscribe to event streams.
-- On disconnect, retry connection with exponential backoff (the BLE SDK does not do this for us — we have to).
+- On disconnect, retry connection with exponential backoff (the BLE SDK's `autoConnectDefault` is one-shot — a ref guard that never re-fires — so we run our own reconnect loop in `BluetoothSessionProvider`, `src/ble/connection.ts`: 1→15s backoff, suppressed on a deliberate user disconnect, re-armed on any successful connect).
 - Handle Android-13+ permission flow (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, plus `ACCESS_FINE_LOCATION` for older SDKs).
 - iOS: declare BLE usage strings in `Info.plist`; background-mode-bluetooth-central if we need background audio.
 
@@ -150,24 +152,11 @@ Implications:
 - **Mic / speaker arbitration**: call `BluetoothSdk.setOwnAppAudioPlaying(true)` before any playback and `(false)` after. The SDK uses this to manage mic state during speech.
 - **No multi-track concept** like the cloud's `trackId: 2` — there is no BLE audio channel to multiplex onto. **Serialize** speech and cues through a single playback queue.
 
-### Audio INPUT path (mic)
+### Audio INPUT path (mic) + STT
 
-Glasses mic emits PCM via the SDK's `mic_pcm` event after calling `BluetoothSdk.setMicState(enabled=true, useGlassesMic=true, ...)`. Format is fixed: **16 kHz, 16-bit signed LE, mono, `pcm_s16le`**. VAD-gated by default.
+Glasses mic emits PCM via the SDK's `mic_pcm` event after calling `BluetoothSdk.setMicState(enabled=true, useGlassesMic=true, ...)` (wrapped in `src/ble/mic.ts`). Format is fixed: **16 kHz, 16-bit signed LE, mono, `pcm_s16le`**. VAD-gated by default.
 
-Two STT architectures still on the table:
-
-**Option A — ElevenLabs Conversational AI direct** (matches starter kit example)
-- PCM → WebSocket to ElevenLabs CAI → text (STT) + audio (TTS) back.
-- Pros: one WebSocket, fastest, no Railway hop for the audio path.
-- Cons: phone needs an ephemeral signed URL from Railway (we add `/api/tts/token`); CAI agent must be configured on ElevenLabs side.
-- Real key never leaves Railway. Mobile holds short-lived (~5 min) signed URL.
-
-**Option B — Stream PCM to Railway, do STT there**
-- PCM → HTTPS chunks (or a single batched POST) to Railway → Whisper / Scribe / similar → text back.
-- Pros: no secrets on phone, easy to swap STT providers, easier to log/analyze.
-- Cons: extra hop, more latency, Railway becomes a real-time audio relay (more failure surface).
-
-Default plan: **measure both with the ported `timeline.ts` before locking in.** Start with Option B because it's the lowest moving-parts path to a working slice (no CAI agent setup), then evaluate A if latency is unacceptable.
+**STT runs server-side — the "stream PCM to Railway" path we picked.** The phone batches the captured PCM and POSTs it to `POST /api/stt` (`src/relay/stt.ts`), where the relay runs ElevenLabs Scribe and returns text; `POST /api/normalize` (`src/relay/normalize.ts`) then fixes Arabic-script-English transcripts. We deliberately did **not** ship the ElevenLabs Conversational AI WebSocket directly on the device (the starter-kit alternative): keeping the key server-side, swapping STT providers, and logging/analysis all stay simpler, and the streaming `POST /api/answer` turn (below) recovers most of the latency the extra hop would otherwise cost. The once-planned `/api/tts/token` (a CAI signed-URL minter) was never needed and is not implemented.
 
 ### Streaming answer turn
 
@@ -180,7 +169,7 @@ The hot command turn no longer makes the 5 sequential relay calls (`stt → norm
 
 ### Audio cues
 
-Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`, `working.wav`. The cloud version generates these server-side at startup ([`src/services/cue-service.ts`](../src/services/cue-service.ts)); for mobile we pre-generate them at build time (or generate-once-at-first-launch) and play through `expo-audio`. Saves ~2.5-3s vs TTS cues. Generator: `scripts/generate-cues.ts` (pure synthetic tones — no network).
+Pre-generated WAV files bundled at `mobile/assets/cues/listening.wav`, `got-it.wav`, `cancelled.wav`, `working.wav`. The cloud version generated these server-side at startup; for mobile we pre-generate them at build time and play through `expo-audio`. Saves ~2.5-3s vs TTS cues. Generator: `scripts/generate-cues.ts` (pure synthetic tones — no network).
 
 ### Pre-bundled phrase audio
 
@@ -192,7 +181,7 @@ The hot, **static** spoken phrases (`didntCatch`, `generalError`, `unknownComman
 
 ## Listening state machine
 
-Port the **exact** semantics from [`src/app.ts:62-68, 252-325`](../src/app.ts). Constants live in `mobile/src/state/listening.ts`:
+The mobile machine lives in `mobile/src/state/listening.ts` and ports the **exact** semantics from the cloud app's `src/app.ts` (separate repo — see the path note near the top). Constants:
 
 - States: `idle` | `active` | `processing`
 - `LISTENING_TIMEOUT_MS` = 10_000 — auto return to idle if no command received
@@ -255,7 +244,7 @@ For the **legacy "port in this order" guidance** (kept for reference):
 | 7 | `enroll` | [face-enroll.ts](../src/commands/face-enroll.ts) | `POST /api/faces/enroll` | Stateful 2-step; preserve all safeguards. |
 | 8 | VQA | [visual-qa.ts](../src/commands/visual-qa.ts) | `POST /api/vision/vqa` | Fallback for unmatched intents. |
 
-The intent router is also a Railway call: `POST /api/intent` with `{ text, language }` returns `{ command, params, confidence }`. Keyword fallback runs client-side if Railway is slow / unreachable (port the keyword table from [`src/commands/command-router.ts`](../src/commands/command-router.ts)).
+The intent router is also a Railway call: `POST /api/intent` with `{ text, language }` returns `{ command, params, confidence }`. Keyword fallback runs client-side if Railway is slow / unreachable (the relay's keyword table is in [`src/relay/command-router.ts`](../src/relay/command-router.ts)).
 
 ## Railway relay contract
 
@@ -263,8 +252,8 @@ The mobile app talks to the Railway server via these endpoints. The server imple
 
 | Endpoint | Method | Body | Returns | Wraps |
 |---|---|---|---|---|
-| `/api/intent` | POST | `{ text, language }` | `{ command, params, confidence }` | [command-router.ts](../src/commands/command-router.ts) |
-| `/api/answer` | POST | `{ text, photoToken, language }` | **NDJSON `AnswerEvent` stream** (route → chunks → final). The primary low-latency turn path — see [Streaming answer turn](#streaming-answer-turn). | [answer.ts](../src/relay/answer.ts) |
+| `/api/intent` | POST | `{ text, language }` | `{ command, params, confidence }` | [command-router.ts](../src/relay/command-router.ts) |
+| `/api/answer` | POST | `{ text, photoToken, language, speed?, voicePreset? }` | **NDJSON `AnswerEvent` stream** (route → chunks → final). The primary low-latency turn path — `speed`/`voicePreset` ride along so streamed describe/read/VQA honour the user's voice settings like the discrete /api/tts path. See [Streaming answer turn](#streaming-answer-turn). | [answer.ts](../src/relay/answer.ts) |
 | `/api/vision/scene` | POST | `{ image: base64, language }` | `{ description }` | [vision-service.ts → describeScene](../src/services/vision-service.ts) |
 | `/api/vision/ocr` | POST | `{ image: base64, language }` | `{ text, truncated }` | vision-service → extractText |
 | `/api/vision/currency` | POST | `{ image: base64, language }` | `{ bills: [...], total, currency }` | vision-service → recognizeCurrency |
@@ -281,7 +270,7 @@ The mobile app talks to the Railway server via these endpoints. The server imple
 | `/api/tts` | POST | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes (Content-Type per format, `X-Audio-Format` header echoes choice) | server-side ElevenLabs TTS; default `format=mp3_44100_128`. Accepts `mp3_*`, `pcm_*` (8/16/22/24/44 kHz, 16-bit LE mono), and `ulaw_8000`. Returns 503 if `ELEVENLABS_API_KEY` is unset, 413 if text > 5000 chars. |
 | `/api/tts/token` *(deferred)* | POST | TBD | TBD | will mint a short-lived ElevenLabs Conversational AI signed URL when we set up a CAI agent. Not implemented yet — use `/api/tts` for now. |
 
-> **Face GET/PUT/DELETE/photo are open routes** — registered directly on the Express webview app in [`src/app.ts`](../src/app.ts), *not* the HMAC relay router (only face **POST** recognize/enroll lives on the relay). The mobile client sends its HMAC headers anyway (harmless). The photo route is unauthenticated, so its URL works directly as an `<Image>` source ([`relay/faces.ts → facePhotoUrl`](src/relay/faces.ts)). The Contacts screen consumes `listFaces` / `renameFace` / `deleteFace` / `facePhotoUrl`.
+> **Face management routes are HMAC-authed except the photo GET.** `registerFaceRoutes(app)` ([`src/relay/faces.ts`](../src/relay/faces.ts), mounted in [`src/server.ts`](../src/server.ts) *before* the relay router so the specific routes win) puts `relayAuth` on `GET /api/faces`, `PUT /api/faces/:id`, and `DELETE /api/faces/:id`; only `GET /api/faces/:id/photo` is unauthenticated, so its URL works directly as an `<Image>` source ([`relay/faces.ts → facePhotoUrl`](src/relay/faces.ts)). Face **POST** recognize/enroll live on the relay router. The Contacts screen consumes `listFaces` / `renameFace` / `deleteFace` / `facePhotoUrl`.
 
 ### Auth
 
@@ -293,7 +282,7 @@ Per-device HMAC token. Device generates a UUID on first launch (stored in MMKV).
 
 ## Bilingual support
 
-Same model as the cloud version. The `messages` constant in [`src/services/tts-service.ts`](../src/services/tts-service.ts) is the source of truth — copy verbatim into `mobile/src/i18n/messages.ts` as a TS constants file. Don't introduce a new i18n framework just for this — a flat constants object plus `language` from settings is enough.
+Same model as the cloud version. `mobile/src/i18n/messages.ts` is the source of truth for spoken strings (a flat TS constants object keyed by `language`); it also feeds the bundled-phrase generator, so keep it clean of UI-only copy (that lives in `i18n/ui.ts`). Don't introduce a new i18n framework — a constants object plus `language` from settings is enough.
 
 Language detection: respect the user's selected language (`settings.language`). Do NOT auto-detect from STT (we already learned that lesson with `onTranscriptionForLanguage` vs `onTranscription`).
 
@@ -301,11 +290,11 @@ RTL: required when language is Arabic. Implemented in `src/App.tsx` at module lo
 
 ## Settings
 
-Same shape as [`src/services/settings-store.ts`](../src/services/settings-store.ts):
+The server-contract settings shape (consumed by the relay's `/api/tts` request):
 
 ```ts
 interface AppSettings {
-  speechSpeed: number;   // 0.5 - 2.0
+  speechSpeed: number;   // 0.7 - 1.2 (ElevenLabs voice_settings.speed band; clamped)
   volume: number;        // 0.0 - 1.0
   voicePreset: "default" | "male" | "female";
   language: "ar" | "en";
@@ -341,9 +330,9 @@ Mobile env vars are baked into the build (anything with `EXPO_PUBLIC_` is expose
 
 `.env.example` lives in `mobile/.env.example` — keep it in sync as we add vars. The root `.env.example` covers the Railway server.
 
-## Project structure (planned)
+## Project structure
 
-Currently this directory only contains this file. As work proceeds, the layout should look like:
+The actual layout (top-level config, `scripts/`, `assets/{cues,phrases}/`, `patches/`, and `testing/` omitted for brevity — see the repo):
 
 ```
 mobile/
@@ -370,13 +359,14 @@ mobile/
     ├── navigation/
     │   └── MainTabs.tsx             # Bottom tabs (themed, Ionicons + a11y labels)
     ├── ble/
-    │   ├── connection.ts            # Scan, connect, reconnect
+    │   ├── connection.ts            # Scan, connect, reconnect + imperative connected-state store
     │   ├── events.ts                # Button / touch / battery subscriptions
-    │   ├── audio.ts                 # PCM mic in, audio bytes out
-    │   └── camera.ts                # Photo capture via BLE
+    │   ├── mic.ts                   # PCM mic capture (setMicState + mic_pcm)
+    │   └── camera.ts                # Photo capture via BLE (single-flight + disconnect racer)
     ├── audio/
-    │   ├── stt.ts                   # ElevenLabs CAI WebSocket
-    │   ├── tts.ts                   # ElevenLabs CAI WebSocket (same socket)
+    │   ├── tts.ts                   # TTS playback orchestration (bundled-phrase fast path + live /api/tts)
+    │   ├── playback.ts              # Low-level expo-audio play() with onStart mark
+    │   ├── phrases.ts               # Bundled static-phrase asset lookup
     │   ├── streamingTts.ts          # Consumes /api/answer NDJSON → temp files → serialized play() queue
     │   ├── thinkingCue.ts           # Looping "working" earcon (own player) during the answer wait
     │   └── cues.ts                  # Bundled WAV playback
@@ -392,15 +382,21 @@ mobile/
     ├── state/
     │   ├── listening.ts             # State machine (see section above)
     │   ├── enrollment.ts            # 2-step enrollment state
+    │   ├── lastResponse.ts          # Last spoken response (for repeat)
     │   ├── settings.ts              # Zustand store, MMKV-backed (server-contract AppSettings)
     │   ├── appearance.ts            # Display prefs: themeMode + textScale (MMKV, NOT in AppSettings)
     │   ├── onboarding.ts            # First-launch hasOnboarded flag (MMKV)
+    │   ├── deviceId.ts              # Per-device UUID for HMAC auth (MMKV)
     │   ├── activity.ts              # Rolling 20-event log
     │   └── usabilityLog.ts          # Uncapped session log for usability testing (+ CSV export)
     ├── relay/
     │   ├── client.ts                # HTTPS client + HMAC auth (exports authHeaders/buildUrl/withTimeout)
     │   ├── intent.ts                # /api/intent
+    │   ├── normalize.ts             # /api/normalize (Arabic-script-English → Latin)
     │   ├── answer.ts                # /api/answer streaming consumer (expo/fetch) + NDJSON decoder
+    │   ├── stt.ts                   # /api/stt (PCM → text)
+    │   ├── tts.ts                   # /api/tts (text → audio bytes)
+    │   ├── photo.ts                 # /api/photo/upload-url + wait (capture token dance)
     │   ├── vision.ts                # /api/vision/*
     │   └── faces.ts                 # /api/faces/*
     ├── i18n/
@@ -415,22 +411,21 @@ mobile/
     │   └── UsabilityTestScreen.tsx  # Testing mode: tag active task, view per-task counts, export CSV
     └── utils/
         ├── logger.ts                # Same Logger interface as server
-        ├── timeline.ts              # Latency spans (port from src/utils/timeline.ts)
-        ├── transcription-filter.ts  # Copy from server
-        └── transcription-normalizer.ts # Copy from server
+        ├── timeline.ts              # Latency spans + usability marks
+        └── transcription-filter.ts  # stripAnnotations() + validation (script normalization is server-side via /api/normalize)
 ```
 
 ## Phased status
 
 | Phase | Goal | Status |
 |---|---|---|
-| **0** | Repo fork + this CLAUDE.md | **In progress (you are here)** |
-| **A** | Railway relay endpoints (`/api/intent`, `/api/vision/*`, `/api/faces/*`, `/api/tts/token`) live alongside the existing MentraOS server | Not started |
-| **B** | RN scaffold + BLE handshake + button/swipe events visible in the app | Not started |
-| **C** | Audio pipeline end-to-end (PCM → STT → text → TTS → speaker) over BLE | Not started |
-| **D** | Port all 8 commands one at a time | Not started |
-| **E** | Companion UI (4 screens) + polish | Not started |
-| **F** | Hardening + merge back to `main` | Not started |
+| **0** | Repo fork + this CLAUDE.md | **Done** |
+| **A** | Railway relay endpoints (`/api/stt`, `/api/intent`, `/api/answer`, `/api/normalize`, `/api/vision/*`, `/api/faces/*`, `/api/tts`) | **Done** |
+| **B** | RN scaffold + BLE handshake + button/swipe events in the app | **Done** |
+| **C** | Audio pipeline end-to-end (PCM → STT → text → TTS → speaker) over BLE, incl. the streaming `/api/answer` turn | **Done** |
+| **D** | All 8 commands ported | **Done** |
+| **E** | Companion UI (onboarding + 4 tabs, WCAG theme) + usability instrumentation | **Done** |
+| **F** | On-device hardening + tuning + merge back to `main` | **In progress** |
 
 Each phase ends with hardware verification on Mentra Live. Don't proceed to the next phase until the current one is demoable.
 
@@ -444,10 +439,10 @@ These extend the rules in root [CLAUDE.md](../CLAUDE.md), they don't replace the
 4. **Preserve cloud semantics.** Listening timeouts, echo buffer, grace period, OCR cap, RTL number formatting — these were tuned with users. Don't change them without a measured reason.
 5. **Test on real Mentra Live hardware.** Simulators do not have BLE. Every PR that touches BLE, audio, or commands needs a hardware test note.
 6. **Measure before optimizing.** Port [`src/utils/timeline.ts`](../src/utils/timeline.ts) early. Every command span goes through it. Latency is a first-class metric.
-7. **Keep both halves in sync.** When you add a new Railway endpoint, update the table in this file. When you change `AppSettings` shape, update both `src/services/settings-store.ts` and `mobile/src/state/settings.ts`. When you change bilingual messages, update both copies.
+7. **Keep both halves in sync.** When you add or change a relay endpoint, update the Railway-relay-contract table in this file (and the root `CLAUDE.md`). When you change the `AppSettings` shape (`mobile/src/state/settings.ts`), check the `/api/tts` request still matches. When you change bilingual spoken strings (`i18n/messages.ts`), regenerate the bundled phrases (`bun run scripts/generate-phrases.ts`).
 8. **Don't reach into the cloud app code at runtime.** Only at design time (as a spec to copy from). The mobile app's only runtime dependency on `SuhailTeam/*` is the Railway relay's HTTP API.
 9. **Keep `mobile/.env.example` and `mobile/package.json` up to date.** Same hygiene as the server side.
-10. **Bun or npm — pick one and don't mix.** Decide in Phase B; document the choice here.
+10. **Bun is the package manager** — `bun install` (it applies `patches/` via `patchedDependencies`). Don't use npm/yarn: they skip the patches and break iOS 26.5+ builds.
 
 ## Adding a new command (mobile-side)
 
@@ -456,7 +451,7 @@ After the relay endpoint exists:
 1. Create `mobile/src/commands/<name>.ts` with a single `execute(deps)` function. Pattern: capture photo → call Railway endpoint → speak result. Mirror the shape of [`src/commands/base-command.ts`](../src/commands/base-command.ts) (try/catch + 5s photo timeout + pre-capture fallback + friendly error speech).
 2. Add the command to the keyword fallback table in `mobile/src/state/listening.ts` (in case the LLM intent router times out).
 3. Add to the command dispatcher in `mobile/src/state/listening.ts` (the equivalent of `this.handlers` in the cloud `app.ts`).
-4. Add a real hardware test to the verification list in [the research doc](../../../../../.claude/plans/i-want-you-to-curried-steele.md#7-verification--how-wed-know-the-rewrite-is-done).
+4. Add an on-device hardware test note to the PR (any BLE / audio / command change needs one — see rule 5).
 
 ## Testing (mobile)
 
@@ -470,15 +465,14 @@ process-global. Full layout + gotchas: [`../testing/README.md`](../testing/READM
 
 ## Commands quick reference (mobile dev workflow)
 
-These don't work yet — listed for when Phase B lands.
-
 ```bash
 # Inside mobile/
-bun install                           # or npm install — TBD
-bunx expo start --dev-client          # Start Metro for dev build
-eas build --profile development --platform ios       # iOS dev build (requires Mac or EAS cloud)
-eas build --profile development --platform android   # Android dev build
-eas build --profile production --platform all        # Production builds for both
+bun install                           # installs deps + applies patches/ (bun only)
+cp .env.example .env                  # then set EXPO_PUBLIC_RELAY_BASE_URL + _SHARED_SECRET
+bunx expo prebuild --clean            # one-time: generate native projects (bun run prebuild)
+bun run start                         # Metro for the dev build (expo start --dev-client)
+bun run android                       # build + run on a connected Android device (expo run:android)
+bun run ios                           # build + run on a Mac + real iPhone (expo run:ios)
 bun run typecheck                     # tsc --noEmit (production src; testing/ excluded)
 bun run typecheck:test                # Type-check src + testing/ (tsconfig.test.json)
 bun run test                          # Mobile suite: bun test ./testing/unit && ./testing/state-machine
@@ -487,6 +481,8 @@ bun run scripts/generate-phrases.ts   # Regenerate pre-bundled phrase audio (nee
 bun scripts/make-icons.ts             # Regenerate app icon + splash + logo marks (uses repo-root sharp)
 ```
 
+For EAS cloud builds: `bunx eas-cli login`, then `bunx eas build --profile development --platform ios|android` (or `--profile production --platform all`).
+
 ## References
 
 - BLE SDK overview: https://bluetooth-sdk-docs.mentra.glass/bluetooth-sdk/overview/
@@ -494,4 +490,3 @@ bun scripts/make-icons.ts             # Regenerate app icon + splash + logo mark
 - ElevenLabs audio pattern (copy): https://github.com/Mentra-Community/Mentra-Bluetooth-SDK-Starter-Kit/tree/main/examples/react-native-elevenlabs-audio
 - Original cloud app (the spec): [SuhailTeam/SuhailApp](https://github.com/SuhailTeam/SuhailApp)
 - This fork: [SuhailTeam/SuhailApp-BLE](https://github.com/SuhailTeam/SuhailApp-BLE)
-- Research / phased plan: [`C:\Users\User\.claude\plans\i-want-you-to-curried-steele.md`](../../../../../.claude/plans/i-want-you-to-curried-steele.md)

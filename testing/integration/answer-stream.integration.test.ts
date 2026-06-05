@@ -146,3 +146,35 @@ describe("POST /api/answer — streamed answers", () => {
     expect(events.find((e) => e.type === "error")).toMatchObject({ recoverable: true });
   });
 });
+
+describe("POST /api/answer — voice settings plumbing", () => {
+  test("forwards the speed setting to ElevenLabs voice_settings.speed", async () => {
+    mock = mockAnswerBackends({ deltas: ["The door is open."] });
+    const token = await uploadedToken();
+    await postAnswer({ text: "is the door open", photoToken: token, language: "en", speed: 0.9 });
+    expect(mock.elevenLabsRequests.length).toBeGreaterThan(0);
+    for (const r of mock.elevenLabsRequests) {
+      expect(r.body?.voice_settings?.speed).toBe(0.9);
+    }
+  });
+
+  test("clamps an out-of-range speed to ElevenLabs' 0.7–1.2 band", async () => {
+    mock = mockAnswerBackends({ deltas: ["The door is open."] });
+    const token = await uploadedToken();
+    await postAnswer({ text: "is the door open", photoToken: token, language: "en", speed: 2.0 });
+    expect(mock.elevenLabsRequests.length).toBeGreaterThan(0);
+    for (const r of mock.elevenLabsRequests) {
+      expect(r.body?.voice_settings?.speed).toBe(1.2);
+    }
+  });
+
+  test("forwards the voicePreset to the matching ElevenLabs voice id", async () => {
+    mock = mockAnswerBackends({ deltas: ["The door is open."] });
+    const token = await uploadedToken();
+    await postAnswer({ text: "is the door open", photoToken: token, language: "en", voicePreset: "male" });
+    expect(mock.elevenLabsRequests.length).toBeGreaterThan(0);
+    for (const r of mock.elevenLabsRequests) {
+      expect(r.url).toContain("pNInz6obpgDQGcFmaJgB"); // Adam (male preset)
+    }
+  });
+});

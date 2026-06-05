@@ -61,6 +61,35 @@ describe("intent router — keyword fast-path (DT-R1, EP keyword partitions)", (
   });
 });
 
+describe("intent router — terse one-word commands with STT punctuation", () => {
+  // ElevenLabs Scribe appends terminal punctuation; a blind user's one-word
+  // command ("Describe.", "Who?") must still hit the keyword fast-path and never
+  // pay the LLM round-trip (or misroute to visual-qa when the LLM is down).
+  const cases: Array<[string, string]> = [
+    ["Describe.", "scene-summarize"],
+    ["Read.", "ocr-read-text"],
+    ["Who?", "face-recognize"],
+    ["Money.", "currency-recognize"],
+    ["Color!", "color-detect"],
+    ["وصف.", "scene-summarize"],
+    ["من؟", "face-recognize"],
+  ];
+  for (const [text, expected] of cases) {
+    test(`"${text}" → ${expected} (punctuation stripped, no LLM)`, async () => {
+      fm = mockChatContent('{"intent":"visual_qa"}'); // would mislead if the LLM were consulted
+      const r = await routeCommand(text);
+      expect(r?.command).toBe(expected as any);
+      expect(fm.calls).toBe(0);
+    });
+  }
+
+  test("trailing punctuation is trimmed off the find-object param", async () => {
+    const r = await routeCommand("find my keys.");
+    expect(r?.command).toBe("find-object");
+    expect(r?.params?.objectName).toBe("my keys");
+  });
+});
+
 describe("intent router — LLM path (DT-R2 known intent)", () => {
   test("paraphrase with no trigger word → LLM intent used", async () => {
     fm = mockChatContent('{"intent":"scene_summarize"}');

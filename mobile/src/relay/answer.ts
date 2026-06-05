@@ -34,7 +34,15 @@ const ANSWER_STREAM_TIMEOUT_MS = 45_000;
  * intact across chunk boundaries.
  */
 export async function requestAnswerStream(
-  body: { text: string; photoToken: string; language: Language },
+  body: {
+    text: string;
+    photoToken: string;
+    language: Language;
+    /** Speech speed (0.7–1.2); the server clamps. Omit to use the default. */
+    speed?: number;
+    /** Voice preset — "default" | "male" | "female". Omit to use the default. */
+    voicePreset?: string;
+  },
   signal: AbortSignal | undefined,
   onEvent: (ev: AnswerEvent) => void | Promise<void>,
 ): Promise<void> {

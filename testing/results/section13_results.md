@@ -7,13 +7,13 @@
 Overall: ALL GREEN ✅
 
 ## Table 13.9 — Unit tests
-Server unit: 80 pass / 0 fail
-Mobile unit: 37 pass / 0 fail
-Mobile state-machine (listening): 7 pass / 0 fail
-**Total unit: 124 pass / 0 fail — 100%**
+Server unit: 88 pass / 0 fail
+Mobile unit: 42 pass / 0 fail
+Mobile state-machine (listening): 11 pass / 0 fail
+**Total unit: 141 pass / 0 fail — 100%**
 
 ## Table 13.10 — Integration tests
-Relay HTTP integration (auth, photo flow, intent pipeline): 17 pass / 0 fail
+Relay HTTP integration (auth, photo flow, intent pipeline): 24 pass / 0 fail
 
 ## Table 13.11 — Regression tests
 Server known-fixes: 7 pass / 0 fail
@@ -22,14 +22,14 @@ Server known-fixes: 7 pass / 0 fail
 ## Table 13.12 — Functional tests per command (success rate + latency)
 | Command | Success rate | E2E latency (median) |
 |---|---|---|
-| Scene summarization | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| OCR | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Face recognition | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Face enrollment | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Object finding | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Currency recognition | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Visual question answering | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
-| Color detection | needs data collection (run with RUN_LIVE=1 + dataset) (B) | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
+| Scene summarization | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 25.18s (median, n=5, on-device — C) |
+| OCR | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 16.71s (median, n=5, on-device — C) |
+| Face recognition | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 11.01s (median, n=5, on-device — C) |
+| Face enrollment | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 10.79s (median, n=3, on-device — C) |
+| Object finding | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 16.09s (median, n=5, on-device — C) |
+| Currency recognition | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 15.31s (median, n=5, on-device — C) |
+| Visual question answering | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 28.30s (median, n=5, on-device — C) |
+| Color detection | needs data collection (run with RUN_LIVE=1 + dataset) (B) | 17.61s (median, n=5, on-device — C) |
 
 ## Table 13.13 — Cross-cutting subsystem functional results
 | Subsystem | Metric | Value |
@@ -43,5 +43,17 @@ Server known-fixes: 7 pass / 0 fail
 | Pre-capture / cue / photo round-trip latency | medians | needs device (Mentra Live — capture via mobile timeline / usability CSV) (C) |
 
 ## Table 13.14 — Usability
-Task success / time-to-first-word / recoveries / SUS: needs participants (usability sessions — PR #37 tooling + Google kit) (D)
+Participants: sessions 5/5 · SUS 5/5 — FINAL
+
+| Measure | Value | n |
+|---|---|---|
+| Task success rate (overall) | 84% (derived) | 38 tasks |
+| Time-to-first-spoken-word (median, IQR) | median 12.14s · IQR 10.30s–13.79s | 48 turns |
+| End-of-speech → first word (median) | 5.26s | 48 |
+| Total turn (median) | 17.09s | 48 |
+| Recoveries per task (mean) | 0.25 | 38 tasks |
+| SUS (mean, 0–100) | 74.5 | 5 |
+
+---
+Report-analysis tooling tests (validate the usability + dataset scripts; NOT part of Tables 13.9–13.11): 49 pass / 0 fail
 

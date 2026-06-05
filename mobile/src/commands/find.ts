@@ -18,7 +18,9 @@ export async function executeFind(opts: {
   preCapture?: Promise<CapturedPhoto> | null;
 }): Promise<string> {
   const { language, signal, preCapture } = opts;
-  const objectName = (opts.objectName ?? "").trim() || "object";
+  // Localised placeholder so a bare wake word ("وين" / "find" with no object)
+  // doesn't speak the English word "object" inside an Arabic sentence.
+  const objectName = (opts.objectName ?? "").trim() || (language === "ar" ? "الشيء" : "object");
 
   const photo = await resolvePhoto({ preCapture, signal });
   if (signal?.aborted) throw new Error("aborted");

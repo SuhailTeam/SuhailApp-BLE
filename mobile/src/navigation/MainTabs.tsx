@@ -46,7 +46,9 @@ export function MainTabs(): React.ReactElement {
         },
         tabBarActiveTintColor: theme.colors.accent,
         tabBarInactiveTintColor: theme.colors.textMuted,
-        tabBarLabelStyle: { fontSize: 12 },
+        // Drive label size from the theme so the bottom-tab labels grow with the
+        // Settings → Text size slider like the rest of the UI (was a fixed 12px).
+        tabBarLabelStyle: { fontSize: theme.type.caption.fontSize },
         tabBarIcon: ({ focused, color, size }) => {
           const icon = ICONS[route.name] ?? FALLBACK_ICON;
           return <Ionicons name={focused ? icon.active : icon.inactive} size={size} color={color} />;

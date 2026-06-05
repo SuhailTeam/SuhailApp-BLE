@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Suhail",
   slug: "suhail-mobile",
-  version: "0.1.0",
+  version: "1.5.0",
   orientation: "portrait",
   scheme: "suhail",
   userInterfaceStyle: "automatic",

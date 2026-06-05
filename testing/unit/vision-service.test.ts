@@ -1,11 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   parseCurrencyResponse,
   cleanJSON,
   resolveLanguage,
   langInstruction,
   langName,
+  detectObject,
+  detectColor,
 } from "../../src/services/vision-service";
+import { mockChatContent, type FetchMock } from "../helpers/mock-openrouter";
 
 // Pure parsing/formatting helpers of the vision service (no network).
 
@@ -56,6 +59,40 @@ describe("cleanJSON", () => {
   test("strips ```json fences and trims", () => {
     expect(cleanJSON('```json\n{"a":1}\n```')).toBe('{"a":1}');
     expect(cleanJSON('```{"a":1}```')).toBe('{"a":1}');
+  });
+});
+
+describe("detectObject / detectColor — graceful degradation on non-JSON output", () => {
+  let fm: FetchMock | undefined;
+  afterEach(() => {
+    fm?.restore();
+    fm = undefined;
+  });
+
+  test("detectObject: prose-wrapped output → not-found, never throws", async () => {
+    fm = mockChatContent('Sure! Here is the result: {"found": true, "location": "left"}');
+    const r = await detectObject("imgb64", "keys", "en");
+    expect(r).toEqual({ found: false, location: "", confidence: 0.9 });
+  });
+
+  test("detectObject: clean JSON still parses", async () => {
+    fm = mockChatContent('{"found": true, "location": "to your right"}');
+    const r = await detectObject("imgb64", "keys", "en");
+    expect(r.found).toBe(true);
+    expect(r.location).toBe("to your right");
+  });
+
+  test("detectColor: truncated JSON → unknown, never throws", async () => {
+    fm = mockChatContent('{"colorName": "blu'); // truncated mid-string
+    const r = await detectColor("imgb64", "en");
+    expect(r).toEqual({ colorName: "unknown", hex: "#000000" });
+  });
+
+  test("detectColor: clean JSON still parses", async () => {
+    fm = mockChatContent('{"colorName": "red", "hex": "#ff0000"}');
+    const r = await detectColor("imgb64", "en");
+    expect(r.colorName).toBe("red");
+    expect(r.hex).toBe("#ff0000");
   });
 });
 

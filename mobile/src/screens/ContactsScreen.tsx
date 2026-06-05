@@ -104,7 +104,10 @@ export default function ContactsScreen(): React.ReactElement {
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
       {loading && faces.length === 0 ? (
         <ActivityIndicator color={theme.colors.accent} style={{ marginTop: theme.spacing.xxl }} />
-      ) : error ? (
+      ) : error && faces.length === 0 ? (
+        // Only show the full-screen error when there's nothing to show. A failed
+        // pull-to-refresh while contacts are already loaded keeps the list
+        // (the spinner just clears) instead of blanking it on a transient blip.
         <View style={styles.center}>
           <Ionicons name="cloud-offline-outline" size={48} color={theme.colors.textMuted} />
           <Text style={styles.errorText}>{error}</Text>

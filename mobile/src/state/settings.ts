@@ -9,7 +9,7 @@ const STORAGE_KEY = "settings.v1";
 export type VoicePreset = "default" | "male" | "female";
 
 export interface AppSettings {
-  speechSpeed: number;   // 0.5 – 2.0
+  speechSpeed: number;   // 0.7 – 1.2 (ElevenLabs' supported voice_settings.speed band)
   volume: number;        // 0.0 – 1.0
   voicePreset: VoicePreset;
   language: Language;
@@ -32,7 +32,7 @@ function sanitise(partial: Partial<AppSettings>, base: AppSettings): AppSettings
   return {
     speechSpeed:
       typeof partial.speechSpeed === "number" && Number.isFinite(partial.speechSpeed)
-        ? clamp(partial.speechSpeed, 0.5, 2.0)
+        ? clamp(partial.speechSpeed, 0.7, 1.2)
         : base.speechSpeed,
     volume:
       typeof partial.volume === "number" && Number.isFinite(partial.volume)

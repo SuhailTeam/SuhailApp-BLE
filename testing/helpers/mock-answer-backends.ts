@@ -34,9 +34,17 @@ export function audioResponse(): Response {
   });
 }
 
+/** A captured ElevenLabs TTS request — the URL (carries the voice id) + parsed JSON body. */
+export interface ElevenLabsRequest {
+  url: string;
+  body: any;
+}
+
 export interface AnswerBackendMock {
   readonly openRouterCalls: number;
   readonly elevenLabsCalls: number;
+  /** Every ElevenLabs TTS request seen, in order — lets tests assert the voice id + voice_settings. */
+  readonly elevenLabsRequests: ElevenLabsRequest[];
   restore(): void;
 }
 
@@ -49,6 +57,7 @@ export function mockAnswerBackends(opts: { deltas: string[]; failTts?: boolean }
   const saved = globalThis.fetch;
   let openRouterCalls = 0;
   let elevenLabsCalls = 0;
+  const elevenLabsRequests: ElevenLabsRequest[] = [];
 
   globalThis.fetch = (async (input: unknown, init?: unknown) => {
     const url =
@@ -59,6 +68,14 @@ export function mockAnswerBackends(opts: { deltas: string[]; failTts?: boolean }
     }
     if (typeof url === "string" && url.includes("elevenlabs.io")) {
       elevenLabsCalls += 1;
+      const rawBody = (init as { body?: unknown } | undefined)?.body;
+      let body: any;
+      try {
+        body = typeof rawBody === "string" ? JSON.parse(rawBody) : undefined;
+      } catch {
+        body = undefined;
+      }
+      elevenLabsRequests.push({ url, body });
       if (opts.failTts) throw new Error("elevenlabs down");
       return audioResponse();
     }
@@ -71,6 +88,9 @@ export function mockAnswerBackends(opts: { deltas: string[]; failTts?: boolean }
     },
     get elevenLabsCalls() {
       return elevenLabsCalls;
+    },
+    get elevenLabsRequests() {
+      return elevenLabsRequests;
     },
     restore() {
       globalThis.fetch = saved;

@@ -19,6 +19,9 @@ describe("isValidTranscription (mobile)", () => {
   test("rejects stutter repetition", () => {
     expect(isValidTranscription("no no no no no", "en")).toBe(false);
   });
+  test("rejects Arabic-script stutter (Unicode-aware guard)", () => {
+    expect(isValidTranscription("من من من من من", "ar")).toBe(false);
+  });
   test("rejects ar-labelled text with no Arabic script", () => {
     expect(isValidTranscription("hello there", "ar")).toBe(false);
   });
