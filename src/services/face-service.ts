@@ -1,5 +1,3 @@
-import * as fs from "node:fs/promises";
-import path from "node:path";
 import {
   CreateCollectionCommand,
   DeleteFacesCommand,
@@ -14,7 +12,19 @@ import {
 import { config } from "../utils/config";
 import { Logger } from "../utils/logger";
 import { cropFace } from "../utils/image-utils";
+import {
+  upsertFace,
+  getName,
+  getNameMap,
+  getRowMap,
+  renameFaceRow,
+  deleteFaceRow,
+} from "./face-store";
 import type { FaceRecognitionResult, MultiFaceResult, FaceMatch } from "../types";
+
+// The Contacts photo route serves bytes straight from the store; re-export so
+// relay handlers keep importing face data from one service module.
+export { getFacePhoto } from "./face-store";
 
 const logger = new Logger("FaceService");
 
@@ -81,45 +91,6 @@ async function ensureCollectionReady(): Promise<void> {
   await collectionReadyPromise;
 }
 
-/* ── Local photo & metadata storage ────────────────────── */
-
-const facesDir = path.resolve(process.cwd(), "data", "faces");
-const metadataPath = path.join(facesDir, "metadata.json");
-
-interface FaceMetadata {
-  [faceId: string]: { name: string; enrolledAt: string };
-}
-
-async function ensureFacesDir(): Promise<void> {
-  await fs.mkdir(facesDir, { recursive: true });
-}
-
-async function readMetadata(): Promise<FaceMetadata> {
-  try {
-    const raw = await fs.readFile(metadataPath, "utf8");
-    return JSON.parse(raw) as FaceMetadata;
-  } catch {
-    return {};
-  }
-}
-
-async function writeMetadata(meta: FaceMetadata): Promise<void> {
-  await ensureFacesDir();
-  await fs.writeFile(metadataPath, JSON.stringify(meta, null, 2), "utf8");
-}
-
-async function saveFacePhoto(faceId: string, imageBase64: string): Promise<void> {
-  await ensureFacesDir();
-  const filePath = path.join(facesDir, `${faceId}.jpg`);
-  await fs.writeFile(filePath, Buffer.from(imageBase64, "base64"));
-  logger.info(`Saved enrollment photo to ${filePath}`);
-}
-
-/** Returns the absolute path to a face photo, or null if it doesn't exist. */
-export function getFacePhotoPath(faceId: string): string {
-  return path.join(facesDir, `${faceId}.jpg`);
-}
-
 /**
  * Ensures the Rekognition collection exists and is reachable.
  */
@@ -157,11 +128,10 @@ export async function recognizeFace(imageBase64: string): Promise<FaceRecognitio
     const faceId = bestMatch.Face.FaceId;
     const rawId = bestMatch.Face.ExternalImageId || null;
 
-    // Prefer local metadata name (supports renames) over Rekognition's hex-encoded name
+    // Prefer the stored name (supports renames) over Rekognition's hex-encoded name
     let name: string | null = null;
     if (faceId) {
-      const meta = await readMetadata();
-      name = meta[faceId]?.name ?? (rawId ? decodeName(rawId) : null);
+      name = (await getName(faceId)) ?? (rawId ? decodeName(rawId) : null);
     } else {
       name = rawId ? decodeName(rawId) : null;
     }
@@ -177,7 +147,7 @@ export async function recognizeFace(imageBase64: string): Promise<FaceRecognitio
 
 /**
  * Enrolls a new face into the Rekognition collection with the provided name.
- * Saves the enrollment photo and metadata locally.
+ * Persists the enrollment photo + metadata to the durable store.
  * Returns the faceId on success, or null on failure.
  */
 export async function enrollFace(name: string, imageBase64: string): Promise<string | null> {
@@ -208,11 +178,8 @@ export async function enrollFace(name: string, imageBase64: string): Promise<str
     return null;
   }
 
-  // Save photo and metadata locally
-  await saveFacePhoto(faceId, imageBase64);
-  const meta = await readMetadata();
-  meta[faceId] = { name: cleanedName, enrolledAt: new Date().toISOString() };
-  await writeMetadata(meta);
+  // Persist the photo + metadata to the durable store (Postgres in prod).
+  await upsertFace(faceId, cleanedName, Buffer.from(imageBase64, "base64"));
 
   logger.info(`Face enrolled successfully. FaceId=${faceId}`);
   return faceId;
@@ -220,12 +187,15 @@ export async function enrollFace(name: string, imageBase64: string): Promise<str
 
 /**
  * Lists all enrolled faces from the Rekognition collection.
- * Merges with local metadata for display names and photo availability.
+ * Merges with the durable store for display names, photo availability, and
+ * enrollment dates. Rekognition stays the authoritative set of faceIds, so
+ * faces enrolled before the store existed still appear (name decoded from the
+ * ExternalImageId, no photo until re-enrolled).
  */
 export async function listFaces(): Promise<Array<{ name: string; faceId: string; hasPhoto: boolean; enrolledAt: string | null }>> {
   await ensureCollectionReady();
 
-  const meta = await readMetadata();
+  const rowMap = await getRowMap();
   const faces: Array<{ name: string; faceId: string; hasPhoto: boolean; enrolledAt: string | null }> = [];
   let nextToken: string | undefined;
 
@@ -240,16 +210,15 @@ export async function listFaces(): Promise<Array<{ name: string; faceId: string;
 
     for (const face of response.Faces ?? []) {
       if (face.FaceId && face.ExternalImageId) {
-        // Local metadata name takes priority over Rekognition's hex-encoded name
-        const localEntry = meta[face.FaceId];
-        const name = localEntry?.name ?? decodeName(face.ExternalImageId);
-        let hasPhoto = false;
-        try {
-          await fs.access(path.join(facesDir, `${face.FaceId}.jpg`));
-          hasPhoto = true;
-        } catch {}
-
-        faces.push({ name, faceId: face.FaceId, hasPhoto, enrolledAt: localEntry?.enrolledAt ?? null });
+        // Stored name takes priority over Rekognition's hex-encoded name
+        const row = rowMap.get(face.FaceId);
+        const name = row?.name ?? decodeName(face.ExternalImageId);
+        faces.push({
+          name,
+          faceId: face.FaceId,
+          hasPhoto: row?.hasPhoto ?? false,
+          enrolledAt: row?.enrolledAt ?? null,
+        });
       }
     }
 
@@ -261,10 +230,7 @@ export async function listFaces(): Promise<Array<{ name: string; faceId: string;
 }
 
 /**
- * Renames an enrolled face in the local metadata.
- */
-/**
- * Deletes a face from the Rekognition collection and removes local photo/metadata.
+ * Deletes a face from the Rekognition collection and removes its stored photo/metadata.
  */
 export async function deleteFace(faceId: string): Promise<void> {
   await ensureCollectionReady();
@@ -275,15 +241,8 @@ export async function deleteFace(faceId: string): Promise<void> {
   }));
   logger.info(`Deleted face ${faceId} from Rekognition`);
 
-  // Remove local photo
-  try {
-    await fs.unlink(path.join(facesDir, `${faceId}.jpg`));
-  } catch {}
-
-  // Remove from metadata
-  const meta = await readMetadata();
-  delete meta[faceId];
-  await writeMetadata(meta);
+  // Remove the stored photo + metadata.
+  await deleteFaceRow(faceId);
 }
 
 /**
@@ -335,7 +294,7 @@ export async function recognizeAllFaces(imageBase64: string): Promise<MultiFaceR
 
   // Step 3: Multiple faces — crop each and search individually (cap at 10)
   const threshold = getSimilarityThreshold();
-  const meta = await readMetadata();
+  const nameMap = await getNameMap();
   const facesToProcess = detectedFaces.slice(0, 10);
 
   const results = await Promise.allSettled(
@@ -381,7 +340,7 @@ export async function recognizeAllFaces(imageBase64: string): Promise<MultiFaceR
         const faceId = bestMatch.Face.FaceId;
         const rawId = bestMatch.Face.ExternalImageId || null;
         const name = faceId
-          ? (meta[faceId]?.name ?? (rawId ? decodeName(rawId) : null))
+          ? (nameMap.get(faceId) ?? (rawId ? decodeName(rawId) : null))
           : (rawId ? decodeName(rawId) : null);
 
         return { name, confidence, isKnown: Boolean(name) };
@@ -404,12 +363,6 @@ export async function renameFace(faceId: string, newName: string): Promise<void>
   const cleanedName = newName.trim();
   if (!cleanedName) throw new Error("Name cannot be empty");
 
-  const meta = await readMetadata();
-  if (!meta[faceId]) {
-    meta[faceId] = { name: cleanedName, enrolledAt: new Date().toISOString() };
-  } else {
-    meta[faceId].name = cleanedName;
-  }
-  await writeMetadata(meta);
+  await renameFaceRow(faceId, cleanedName);
   logger.info(`Renamed face ${faceId} to "${cleanedName}"`);
 }

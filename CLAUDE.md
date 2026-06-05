@@ -27,7 +27,7 @@ Suhail is an AI-powered assistive app for **visually impaired users**, built for
 - **Runtime:** Bun (not Node.js) — `bun run start`, `bun install`, etc.
 - **Language:** TypeScript (strict mode)
 - **HTTP:** Express (built by `src/server.ts`, started by `src/index.ts`)
-- **Storage:** AWS Rekognition (face collection) + local filesystem (`data/faces/`) for face photos/metadata; in-memory `photo-cache` for the BLE capture flow.
+- **Storage:** AWS Rekognition (face vectors/matching) + **Railway Postgres** (face photos + name/`enrolledAt` metadata, via Bun's built-in `Bun.SQL` — no npm dep; falls back to local `data/faces/` filesystem when `DATABASE_URL` is unset); in-memory `photo-cache` for the BLE capture flow.
 - **AI services:** OpenRouter (Google Gemini 2.5 Flash Lite) for vision + intent classification + script normalization; AWS Rekognition for face recognition; **ElevenLabs** for direct TTS (`/api/tts`) and Scribe STT (`/api/stt`).
 
 ## Architecture & Data Flow
@@ -47,7 +47,7 @@ A typical command turn in the mobile app: `/api/stt` (audio→text) → `/api/no
 
 ### Server bootstrap
 
-- **`src/index.ts`** — `main()`: `buildApp()`, then `await loadPersistedFaces()` (init/verify the Rekognition collection + local metadata), then `await probeOpenRouterStatus()` (best-effort key/quota check, never throws), then `app.listen(config.port)`.
+- **`src/index.ts`** — `main()`: `buildApp()`, then `await loadPersistedFaces()` (init/verify the Rekognition collection), then `await initFaceStore()` (prepare the durable face store — create the Postgres table, or the `data/faces/` dir in fallback mode; never throws), then `await probeOpenRouterStatus()` (best-effort key/quota check, never throws), then `app.listen(config.port)`.
 - **`src/server.ts`** — `buildApp()`: creates the Express app, registers `GET /health`, then `registerFaceRoutes(app)`, then `registerRelayRoutes(app)`. **No global body parser** is installed — the relay router and the face routes attach their own `express.json()` with the right limit, and the multipart photo-upload webhook must not have `json()` applied.
 
 > Registration order matters: the specific face routes (`GET/PUT/DELETE /api/faces*`) are registered **before** the relay router's `app.use("/api", router)` so they win over it. They never collide with the relay's `POST /api/faces/{recognize,recognize-all,enroll}`.
@@ -88,7 +88,7 @@ The merged **intent + vision + spoken-answer** endpoint — the low-latency path
 
 ### Face-management routes (`src/relay/faces.ts`)
 
-The BLE mobile **Contacts** screen calls these. Enrolled faces live on the server (AWS Rekognition collection + `data/faces/` photos & metadata), so the app must ask the server for them.
+The BLE mobile **Contacts** screen calls these. Enrolled faces live on the server (AWS Rekognition collection for matching + Postgres/`data/faces/` for photos & metadata), so the app must ask the server for them.
 
 | Method | Endpoint | Auth | Returns |
 |--------|----------|------|---------|
@@ -129,7 +129,10 @@ Relay handlers call these services **directly** (there is no facade).
 OpenRouter, model from `VISION_MODEL` (default `google/gemini-2.5-flash-lite`). All functions delegate to a shared `callVisionAPI` helper with explicit `max_tokens`. Tasks: `describeScene`, `answerVisualQuestion` (VQA), `recognizeCurrency`, `detectObject` (location, e.g. "to your right, on the table"), `detectColor` (name + hex), `extractText` (OCR). Bilingual prompts (ar/en); images sent as base64 data URI. The language default comes from `config.defaultLanguage` (overridable per request via the `language` field).
 
 ### face-service.ts
-AWS Rekognition + local file storage. `recognizeFace` (single best match), `recognizeAllFaces` (`DetectFacesCommand` → crop each with `sharp`/`cropFace` → per-face `SearchFacesByImageCommand`; returns `MultiFaceResult`; optimizes single-face, caps at 10, skips boxes <3% of image, parallel via `Promise.allSettled()`), `enrollFace`, `listFaces`, `deleteFace`, `renameFace`, `loadPersistedFaces` (init/verify collection on startup), `getFacePhotoPath`. Names are hex-encoded for Rekognition's `ExternalImageId`; `data/faces/metadata.json` holds the human-readable mappings. AWS credential errors are handled gracefully (warn + continue).
+AWS Rekognition (vectors + matching) over the **`face-store.ts`** durable layer (names, `enrolledAt`, photos). `recognizeFace` (single best match), `recognizeAllFaces` (`DetectFacesCommand` → crop each with `sharp`/`cropFace` → per-face `SearchFacesByImageCommand`; returns `MultiFaceResult`; optimizes single-face, caps at 10, skips boxes <3% of image, parallel via `Promise.allSettled()`), `enrollFace`, `listFaces`, `deleteFace`, `renameFace`, `loadPersistedFaces` (init/verify collection on startup), and a re-exported `getFacePhoto` (bytes for the photo route). Names are hex-encoded for Rekognition's `ExternalImageId` (so they survive a store wipe); the store holds the human-readable name/photo/date. `listFaces` iterates Rekognition (authoritative faceId set) and merges store rows, so faces enrolled before the store appear with a decoded name and no photo. AWS credential errors are handled gracefully (warn + continue).
+
+### face-store.ts
+Durable storage for face **photos + metadata** (name, `enrolledAt`) keyed by Rekognition's `faceId`. Two backends picked at runtime by `config.databaseUrl`: **Postgres** (Railway, via Bun's native `import { SQL } from "bun"` — zero npm deps; photos stored as `BYTEA`) when set, else the **local filesystem** (`data/faces/` jpgs + `metadata.json`) — the offline/CI fallback, identical to the original behaviour. API: `initFaceStore` (create table / dir; never throws), `upsertFace`, `getName`, `getNameMap`, `getRowMap`, `getFacePhoto`, `renameFaceRow`, `deleteFaceRow`. The Postgres client is constructed lazily so importing the module never opens a socket.
 
 ### elevenlabs-tts.ts
 `synthesize()` calls ElevenLabs TTS directly for `/api/tts`. Voice presets (`male`=Adam, `female`=Rachel); mp3/pcm/ulaw output formats (`isValidFormat()`, `contentTypeFor()`). Returns audio bytes. Held server-side only — never shipped to the mobile binary.
@@ -168,6 +171,7 @@ Defined in `src/utils/config.ts`, loaded from `.env` (local) or Railway (product
 | `AWS_REGION` | AWS region for Rekognition | `us-east-1` |
 | `AWS_REKOGNITION_COLLECTION_ID` | Face collection ID in Rekognition | `suhail-faces` |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS credentials (used implicitly by the AWS SDK) | (empty) |
+| `DATABASE_URL` | Postgres connection for durable face photos/metadata (Railway reference var). Empty → local `data/faces/` fallback (ephemeral on Railway). | (empty) |
 | `DEFAULT_LANGUAGE` | Response language ("ar" or "en") | `ar` |
 | `CONFIDENCE_THRESHOLD` | Min confidence for face recognition (≤1 = ratio, >1 = percent) | `0.5` |
 | `RELAY_SHARED_SECRET` | Shared secret for the BLE app's HMAC-Bearer auth. Empty → relay is OPEN (dev mode, startup warning). | (empty) |
@@ -189,7 +193,8 @@ suhail/
 │   │   └── command-router.ts           # LLM intent classification + keyword fallback (used by /api/intent)
 │   ├── services/
 │   │   ├── vision-service.ts           # OpenRouter/Gemini vision (scene, VQA, currency, object, color, OCR)
-│   │   ├── face-service.ts             # AWS Rekognition (recognition + enrollment) + local file storage
+│   │   ├── face-service.ts             # AWS Rekognition (recognition + enrollment); persists via face-store
+│   │   ├── face-store.ts               # Durable face photos/metadata — Postgres (Bun.SQL) or data/faces/ fallback
 │   │   ├── elevenlabs-tts.ts           # Direct ElevenLabs TTS for /api/tts
 │   │   ├── elevenlabs-stt.ts           # ElevenLabs Scribe STT for /api/stt
 │   │   ├── photo-cache.ts              # In-memory token cache for the BLE photo-capture flow
@@ -202,7 +207,7 @@ suhail/
 │   │   └── transcription-normalizer.ts # LLM script normalization (Arabic-script English → Latin)
 │   └── types/
 │       └── index.ts                    # Shared interfaces and types
-├── data/faces/metadata.json            # Face enrollment metadata (name ↔ faceId); photos saved alongside — gitignored
+├── data/faces/metadata.json            # Face metadata + photos — ONLY the local fallback when DATABASE_URL is unset (gitignored); prod uses Postgres
 ├── mobile/                             # React Native / Expo BLE app (own CLAUDE.md, README) — talks to glasses over BLE + this relay
 ├── landing/                            # React + Vite landing page (standalone marketing site; NOT served by this server)
 ├── .env.example

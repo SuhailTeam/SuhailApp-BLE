@@ -1,6 +1,5 @@
-import * as fs from "node:fs/promises";
 import express from "express";
-import { listFaces, deleteFace, renameFace, getFacePhotoPath } from "../services/face-service";
+import { listFaces, deleteFace, renameFace, getFacePhoto } from "../services/face-service";
 import { Logger } from "../utils/logger";
 import { relayAuth } from "./auth";
 
@@ -35,10 +34,14 @@ export function registerFaceRoutes(app: any): void {
 
   app.get("/api/faces/:faceId/photo", async (req: any, res: any) => {
     try {
-      const photoPath = getFacePhotoPath(req.params.faceId);
-      await fs.access(photoPath);
-      res.type("image/jpeg").sendFile(photoPath);
-    } catch {
+      const photo = await getFacePhoto(req.params.faceId);
+      if (!photo) {
+        res.status(404).json({ error: "Photo not found" });
+        return;
+      }
+      res.type("image/jpeg").send(photo);
+    } catch (error) {
+      logger.error("Failed to load face photo:", error);
       res.status(404).json({ error: "Photo not found" });
     }
   });
