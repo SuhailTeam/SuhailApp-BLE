@@ -41,6 +41,7 @@ The mobile app talks to the glasses directly over Bluetooth and calls this serve
    | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | AWS credentials for Rekognition | (required) |
    | `AWS_REGION` | AWS region | `us-east-1` |
    | `AWS_REKOGNITION_COLLECTION_ID` | Face collection ID | `suhail-faces` |
+   | `DATABASE_URL` | Postgres for durable face photos/metadata (Railway reference var). Empty → local `data/faces/` fallback (ephemeral on Railway) | (empty) |
    | `RELAY_SHARED_SECRET` | HMAC-Bearer secret shared with the mobile app (empty → relay is open, dev mode) | (empty) |
    | `ELEVENLABS_API_KEY` | ElevenLabs key for `/api/tts` + `/api/stt` (empty → those return 503) | (empty) |
    | `DEFAULT_LANGUAGE` | Response language (`ar` or `en`) | `ar` |
@@ -120,7 +121,8 @@ suhail/
 │   │   └── command-router.ts           # LLM intent classification + keyword fallback
 │   ├── services/
 │   │   ├── vision-service.ts           # Vision LLM calls (OpenRouter / Gemini)
-│   │   ├── face-service.ts             # Face recognition/enrollment (AWS Rekognition + local storage)
+│   │   ├── face-service.ts             # Face recognition/enrollment (AWS Rekognition)
+│   │   ├── face-store.ts               # Durable face photos/metadata (Railway Postgres, or data/faces/ fallback)
 │   │   ├── elevenlabs-tts.ts           # ElevenLabs TTS for /api/tts
 │   │   ├── elevenlabs-stt.ts           # ElevenLabs Scribe STT for /api/stt
 │   │   ├── photo-cache.ts              # In-memory token store for the BLE photo flow
@@ -133,7 +135,7 @@ suhail/
 │   │   └── transcription-normalizer.ts # Arabic-script English → Latin (LLM)
 │   └── types/
 │       └── index.ts                    # Shared TypeScript types
-├── data/faces/                         # Persistent face data (metadata + photos) — gitignored
+├── data/faces/                         # Local face data (metadata + photos) — ONLY the fallback when DATABASE_URL is unset; gitignored. Prod uses Postgres
 ├── mobile/                             # React Native / Expo BLE app (own README/CLAUDE.md)
 ├── landing/                            # React + Vite marketing site (standalone; not served here)
 ├── .env.example

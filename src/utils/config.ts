@@ -20,6 +20,12 @@ export const config = {
   /** AWS Rekognition collection ID used for face enrollment and matching */
   awsRekognitionCollectionId: process.env.AWS_REKOGNITION_COLLECTION_ID || "suhail-faces",
 
+  /** Postgres connection string for durable face photo/metadata storage.
+   * Railway injects this via a Postgres reference variable. When empty, the
+   * face store falls back to the local filesystem (data/faces/) — fine for
+   * local dev + CI, but ephemeral on Railway. */
+  databaseUrl: process.env.DATABASE_URL || "",
+
   /** Default language for responses */
   defaultLanguage: (process.env.DEFAULT_LANGUAGE || "ar") as Language,
 
