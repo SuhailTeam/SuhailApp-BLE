@@ -16,6 +16,7 @@ export default function ContactsScreen(): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { t, lang } = useUi();
+  const isRTL = lang === "ar";
 
   const [faces, setFaces] = useState<EnrolledFace[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,7 +102,7 @@ export default function ContactsScreen(): React.ReactElement {
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       {loading && faces.length === 0 ? (
         <ActivityIndicator color={theme.colors.accent} style={{ marginTop: theme.spacing.xxl }} />
       ) : error ? (
@@ -138,11 +139,11 @@ export default function ContactsScreen(): React.ReactElement {
       <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard} accessibilityViewIsModal>
-            <Text accessibilityRole="header" style={styles.modalTitle}>
+            <Text accessibilityRole="header" style={[styles.modalTitle, isRTL ? styles.textRight : styles.textLeft]}>
               {t(ui.contacts.renameTitle)}
             </Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, isRTL ? styles.textRight : styles.textLeft]}
               value={draftName}
               onChangeText={setDraftName}
               placeholder={t(ui.contacts.namePlaceholder)}
@@ -153,7 +154,7 @@ export default function ContactsScreen(): React.ReactElement {
               onSubmitEditing={saveRename}
               returnKeyType="done"
             />
-            <View style={styles.modalActions}>
+            <View style={[styles.modalActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
               <AppButton variant="ghost" label={t(ui.contacts.cancel)} onPress={() => setEditing(null)} fullWidth={false} />
               <AppButton label={t(ui.contacts.save)} onPress={saveRename} disabled={draftName.trim().length < 2} fullWidth={false} />
             </View>
@@ -182,9 +183,10 @@ function ContactRow({
   const [imgFailed, setImgFailed] = useState(false);
   const initial = face.name.trim().charAt(0).toUpperCase() || "?";
   const showPhoto = face.hasPhoto && !imgFailed;
+  const isRTL = lang === "ar";
 
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
       {showPhoto ? (
         <Image
           source={{ uri: facePhotoUrl(face.faceId) }}
@@ -199,17 +201,17 @@ function ContactRow({
         </View>
       )}
 
-      <View style={styles.rowBody}>
-        <Text style={styles.name} numberOfLines={1}>
+      <View style={[styles.rowBody, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+        <Text style={[styles.name, isRTL ? styles.textRight : styles.textLeft]} numberOfLines={1}>
           {face.name}
         </Text>
-        {face.enrolledAt ? <Text style={styles.sub}>{new Date(face.enrolledAt).toLocaleDateString()}</Text> : null}
+        {face.enrolledAt ? <Text style={[styles.sub, isRTL ? styles.textRight : styles.textLeft]}>{new Date(face.enrolledAt).toLocaleDateString()}</Text> : null}
       </View>
 
       {busy ? (
         <ActivityIndicator color={theme.colors.accent} style={styles.rowBusy} />
       ) : (
-        <View style={styles.rowActions}>
+        <View style={[styles.rowActions, { flexDirection: isRTL ? "row-reverse" : "row" }]}>
           <Pressable
             style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
             onPress={onRename}
@@ -224,7 +226,7 @@ function ContactRow({
             accessibilityRole="button"
             accessibilityLabel={uiFn.deleteA11y[lang](face.name)}
           >
-            <Ionicons name="trash-outline" size={20} color={theme.colors.dangerText} />
+            <Ionicons name="trash-outline" size={20} color={theme.colors.danger} />
           </Pressable>
         </View>
       )}
@@ -237,7 +239,7 @@ const createStyles = makeStyles((t) =>
     safe: { flex: 1, backgroundColor: t.colors.bg },
     center: { flex: 1, alignItems: "center", justifyContent: "center", padding: t.spacing.xl, gap: t.spacing.md },
     emptyText: { color: t.colors.textSecondary, textAlign: "center", fontSize: t.type.body.fontSize, lineHeight: t.type.body.lineHeight },
-    errorText: { color: t.colors.dangerText, textAlign: "center", fontSize: t.type.body.fontSize },
+    errorText: { color: t.colors.danger, textAlign: "center", fontSize: t.type.body.fontSize },
     listContent: { padding: t.spacing.lg },
     row: { flexDirection: "row", alignItems: "center", paddingVertical: t.spacing.md, gap: t.spacing.md },
     avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: t.colors.surfaceAlt },
@@ -284,5 +286,7 @@ const createStyles = makeStyles((t) =>
       minHeight: t.minTouch,
     },
     modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: t.spacing.sm },
+    textLeft: { textAlign: "left" },
+    textRight: { textAlign: "right" },
   }),
 );

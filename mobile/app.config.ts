@@ -61,6 +61,7 @@ const config: ExpoConfig = {
     ],
     "expo-localization",
     "expo-asset",
+    "expo-font",
   ],
   experiments: {
     typedRoutes: false,

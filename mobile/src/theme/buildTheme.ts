@@ -1,3 +1,4 @@
+import type { TextStyle } from "react-native";
 import { spacing, radii, hitSlop, MIN_TOUCH, baseType, TEXT_SCALE_MIN, TEXT_SCALE_MAX } from "./tokens";
 import { palettes } from "./palettes";
 import type { Theme, ThemeMode, TypeRole, TypeStyle } from "./types";
@@ -7,12 +8,24 @@ function clampScale(s: number): number {
   return Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, s));
 }
 
-/**
- * Folds the user textScale into the base type sizes. The OS Dynamic Type factor
- * is NOT applied here — RN's <Text allowFontScaling> re-scales by the OS factor
- * at render, so multiplying here too would double-apply it.
- */
-function scaleType(scale: number): Record<TypeRole, TypeStyle> {
+function getArabicFontFamily(fontWeight: TextStyle["fontWeight"]): string {
+  switch (fontWeight) {
+    case "700":
+    case "800":
+    case "bold":
+      return "Cairo_700Bold";
+    case "600":
+      return "Cairo_600SemiBold";
+    case "500":
+      return "Cairo_500Medium";
+    case "400":
+    case "normal":
+    default:
+      return "Cairo_400Regular";
+  }
+}
+
+function scaleType(scale: number, language?: string): Record<TypeRole, TypeStyle> {
   const roles = Object.keys(baseType) as TypeRole[];
   const out = {} as Record<TypeRole, TypeStyle>;
   for (const role of roles) {
@@ -22,17 +35,14 @@ function scaleType(scale: number): Record<TypeRole, TypeStyle> {
       lineHeight: Math.round(t.lineHeight * scale),
       fontWeight: t.fontWeight,
     };
+    if (language === "ar") {
+      out[role].fontFamily = getArabicFontFamily(t.fontWeight);
+    }
   }
   return out;
 }
 
-/**
- * Builds the immutable theme object for a mode + textScale. Call this once in
- * ThemeProvider behind a useMemo keyed on [mode, textScale] so the returned
- * identity is stable and every component's makeStyles only recomputes on a real
- * theme change.
- */
-export function buildTheme(mode: ThemeMode, textScale: number): Theme {
+export function buildTheme(mode: ThemeMode, textScale: number, language?: string): Theme {
   const scale = clampScale(textScale);
   const isHighContrast = mode === "highContrast";
   return {
@@ -41,7 +51,7 @@ export function buildTheme(mode: ThemeMode, textScale: number): Theme {
     colors: palettes[mode],
     spacing,
     radii,
-    type: scaleType(scale),
+    type: scaleType(scale, language),
     hitSlop,
     minTouch: MIN_TOUCH,
     borderWidth: isHighContrast ? 2 : 1,

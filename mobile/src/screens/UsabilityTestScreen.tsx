@@ -45,6 +45,7 @@ export default function UsabilityTestScreen(): React.ReactElement {
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { t, lang } = useUi();
   const navigation = useNavigation();
+  const isRTL = lang === "ar";
 
   const rows = useUsabilityLog((s) => s.rows);
   const activeTask = useUsabilityLog((s) => s.activeTask);
@@ -99,7 +100,7 @@ export default function UsabilityTestScreen(): React.ReactElement {
   return (
     <Screen scroll>
       <Card>
-        <Text style={styles.intro}>{t(ui.usability.intro)}</Text>
+        <Text style={[styles.intro, isRTL ? styles.textRight : styles.textLeft]}>{t(ui.usability.intro)}</Text>
       </Card>
 
       <SectionHeader title={t(ui.usability.activeTask)} />
@@ -115,14 +116,14 @@ export default function UsabilityTestScreen(): React.ReactElement {
             onChange={(v) => setIndex(v)}
           />
         </SettingRow>
-        <Text style={styles.taskName} accessibilityRole="header">
+        <Text style={[styles.taskName, isRTL ? styles.textRight : styles.textLeft]} accessibilityRole="header">
           {`${index}. ${t(ui.usability.tasks[index - 1]!)}`}
         </Text>
         <View style={styles.divider} />
-        <InfoRow styles={styles} label={t(ui.usability.invocations)} value={String(invocations)} />
-        <InfoRow styles={styles} label={t(ui.usability.recoveries)} value={String(recoveries)} />
-        <InfoRow styles={styles} label={t(ui.usability.lastFirstWord)} value={secondsOrDash(lastFirstWord)} />
-        <InfoRow styles={styles} label={t(ui.usability.totalRows)} value={String(rows.length)} />
+        <InfoRow styles={styles} isRTL={isRTL} label={t(ui.usability.invocations)} value={String(invocations)} />
+        <InfoRow styles={styles} isRTL={isRTL} label={t(ui.usability.recoveries)} value={String(recoveries)} />
+        <InfoRow styles={styles} isRTL={isRTL} label={t(ui.usability.lastFirstWord)} value={secondsOrDash(lastFirstWord)} />
+        <InfoRow styles={styles} isRTL={isRTL} label={t(ui.usability.totalRows)} value={String(rows.length)} />
       </Card>
 
       <AppButton variant="primary" iconName="share-outline" label={t(ui.usability.export)} onPress={onExport} />
@@ -133,17 +134,19 @@ export default function UsabilityTestScreen(): React.ReactElement {
 
 function InfoRow({
   styles,
+  isRTL,
   label,
   value,
 }: {
   styles: ReturnType<typeof createStyles>;
+  isRTL: boolean;
   label: string;
   value: string;
 }): React.ReactElement {
   return (
-    <View style={styles.infoRow} accessible accessibilityLabel={`${label}: ${value}`}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+    <View style={[styles.infoRow, { flexDirection: isRTL ? "row-reverse" : "row" }]} accessible accessibilityLabel={`${label}: ${value}`}>
+      <Text style={[styles.infoLabel, isRTL ? styles.textRight : styles.textLeft]}>{label}</Text>
+      <Text style={[styles.infoValue, isRTL ? styles.textLeft : styles.textRight]}>{value}</Text>
     </View>
   );
 }
@@ -183,5 +186,7 @@ const createStyles = makeStyles((t) =>
       fontWeight: t.type.title.fontWeight,
       fontVariant: ["tabular-nums"],
     },
+    textLeft: { textAlign: "left" },
+    textRight: { textAlign: "right" },
   }),
 );

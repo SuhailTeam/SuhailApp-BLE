@@ -13,7 +13,7 @@ interface ScreenProps {
 }
 
 /** Themed screen shell: safe-area background + padded content host. */
-export function Screen({ children, scroll, contentStyle, edges = ["bottom"] }: ScreenProps): React.ReactElement {
+export function Screen({ children, scroll, contentStyle, edges = [] }: ScreenProps): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
 

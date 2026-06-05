@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import React, { useMemo, useLayoutEffect } from "react";
+import { FlatList, I18nManager, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 
 import { makeStyles, useTheme } from "../theme";
 import type { ThemeColors } from "../theme";
@@ -16,7 +17,7 @@ function typeColor(c: ThemeColors, type: ActivityType): string {
     case "ble":
       return c.warningText;
     case "error":
-      return c.dangerText;
+      return c.danger;
     case "system":
     default:
       return c.textMuted;
@@ -26,12 +27,32 @@ function typeColor(c: ThemeColors, type: ActivityType): string {
 export default function ActivityScreen(): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { t } = useUi();
+  const { t, lang } = useUi();
+  const navigation = useNavigation();
+  const isRTL = lang === "ar";
   const entries = useActivity((s) => s.entries);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: t(ui.activity.title) });
+  }, [navigation, lang]);
+
+  const bodyAlignItems = isRTL
+    ? (I18nManager.isRTL ? "flex-start" : "flex-end")
+    : (I18nManager.isRTL ? "flex-end" : "flex-start");
+
+  const textAlignStyle = {
+    textAlign: isRTL
+      ? (I18nManager.isRTL ? "left" : "right")
+      : (I18nManager.isRTL ? "right" : "left"),
+  } as const;
+
+  const rowDirection = isRTL
+    ? (I18nManager.isRTL ? "row-reverse" : "row")
+    : (I18nManager.isRTL ? "row" : "row-reverse");
 
   if (entries.length === 0) {
     return (
-      <SafeAreaView style={styles.safe} edges={["bottom"]}>
+      <SafeAreaView style={styles.safe} edges={[]}>
         <View style={styles.emptyWrap}>
           <Ionicons name="time-outline" size={56} color={theme.colors.textMuted} />
           <Text style={styles.empty}>{t(ui.activity.empty)}</Text>
@@ -41,7 +62,7 @@ export default function ActivityScreen(): React.ReactElement {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <FlatList
         data={[...entries].reverse()}
         keyExtractor={(item) => item.id}
@@ -49,14 +70,14 @@ export default function ActivityScreen(): React.ReactElement {
         renderItem={({ item }) => {
           const color = typeColor(theme.colors, item.type);
           return (
-            <View style={styles.row}>
+            <View style={[styles.row, { flexDirection: rowDirection }]}>
               <View style={[styles.tag, { backgroundColor: `${color}26`, borderColor: color }]}>
                 <Text style={[styles.tagText, { color }]}>{t(ui.activity.types[item.type])}</Text>
               </View>
-              <View style={styles.body}>
-                <Text style={styles.event}>{item.event}</Text>
-                {item.result ? <Text style={styles.sub}>{`→ ${item.result}`}</Text> : null}
-                <Text style={styles.time}>{new Date(item.time).toLocaleTimeString()}</Text>
+              <View style={[styles.body, { alignItems: bodyAlignItems }]}>
+                <Text style={[styles.event, textAlignStyle]}>{item.event}</Text>
+                {item.result ? <Text style={[styles.sub, textAlignStyle]}>{`→ ${item.result}`}</Text> : null}
+                <Text style={[styles.time, textAlignStyle]}>{new Date(item.time).toLocaleTimeString()}</Text>
               </View>
             </View>
           );
@@ -87,5 +108,7 @@ const createStyles = makeStyles((t) =>
     sub: { color: t.colors.textSecondary, fontSize: t.type.caption.fontSize },
     time: { color: t.colors.textMuted, fontSize: t.type.caption.fontSize },
     sep: { height: t.borderWidth, backgroundColor: t.colors.border },
+    textLeft: { textAlign: "left" },
+    textRight: { textAlign: "right" },
   }),
 );
