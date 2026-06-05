@@ -53,8 +53,8 @@ export default function SettingsScreen(): React.ReactElement {
           <Stepper
             label={t(ui.settings.speechSpeed)}
             value={settings.speechSpeed}
-            min={0.5}
-            max={2.0}
+            min={0.7}
+            max={1.2}
             step={0.1}
             format={(v) => `${v.toFixed(1)}×`}
             onChange={(v) => settings.update({ speechSpeed: v })}

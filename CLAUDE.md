@@ -63,7 +63,7 @@ A typical command turn in the mobile app: `/api/stt` (audio→text) → `/api/no
 | Endpoint (POST) | Body | Returns |
 |-----------------|------|---------|
 | `/api/intent` | `{ text, language? }` | `{ command, params?, rawText }` (Scribe annotations stripped first) |
-| `/api/answer` | `{ text, photoToken, language? }` | **NDJSON stream** of `AnswerEvent`s (see below) |
+| `/api/answer` | `{ text, photoToken, language?, speed?, voicePreset? }` | **NDJSON stream** of `AnswerEvent`s (see below); `speed`/`voicePreset` apply to per-sentence TTS |
 | `/api/normalize` | `{ text, language }` | `{ text }` (Arabic-script English → Latin; no-op when not needed) |
 | `/api/vision/scene` | `{ image\|photoToken, language? }` | `{ description, confidence }` |
 | `/api/vision/ocr` | `{ image\|photoToken, context?, language? }` | `{ text }` |
@@ -75,7 +75,7 @@ A typical command turn in the mobile app: `/api/stt` (audio→text) → `/api/no
 | `/api/faces/recognize-all` | `{ image\|photoToken }` | `MultiFaceResult` |
 | `/api/faces/enroll` | `{ image\|photoToken, name }` | `{ faceId, name, enrolledAt }` |
 | `/api/stt` | `{ audio (base64 s16le 16kHz mono PCM), language? }` | `ScribeResult` (503 if no `ELEVENLABS_API_KEY`; rejects <1KB PCM) |
-| `/api/tts` | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes + `Content-Type`/`X-Audio-Format` headers (≤5000 chars; 503 if no key) |
+| `/api/tts` | `{ text, voicePreset?, voiceId?, speed?, format? }` | audio bytes + `Content-Type`/`X-Audio-Format` headers (≤5000 chars; 503 if no key; `speed` clamped to ElevenLabs' 0.7–1.2 band) |
 
 ### Streaming answer (`POST /api/answer`, `src/relay/answer.ts`)
 

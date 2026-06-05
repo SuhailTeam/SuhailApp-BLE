@@ -283,7 +283,15 @@ Respond ONLY with a raw JSON object (no markdown):
       imageBase64,
       maxTokens: 150,
     });
-    const parsed = JSON.parse(cleanJSON(raw) || "{}");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleanJSON(raw) || "{}");
+    } catch {
+      // Prose-wrapped or truncated model output — degrade to "not found" instead
+      // of 500-ing the find-object turn (mirrors parseCurrencyResponse).
+      logger.warn("detectObject: non-JSON model output — returning not-found");
+      return { found: false, location: "", confidence: 0.90 };
+    }
     return {
       found: !!parsed.found,
       location: parsed.location || "",
@@ -332,11 +340,20 @@ export async function detectColor(imageBase64: string, language?: Language): Pro
     const raw = await callVisionAPI({
       prompt: `Identify the dominant color in the center of this image. Respond ONLY with a raw JSON object (no markdown) containing 'colorName' (the name of the color in ${langName(lang)}) and 'hex' (the hex code of the color).`,
       imageBase64,
-      maxTokens: 80,
+      maxTokens: 120,
     });
-    const parsed = JSON.parse(cleanJSON(raw) || "{}");
+    const fallback = () => ({ colorName: lang === "ar" ? "غير معروف" : "unknown", hex: "#000000" });
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleanJSON(raw) || "{}");
+    } catch {
+      // Prose-wrapped or truncated model output — degrade to "unknown" instead
+      // of 500-ing the color turn (mirrors parseCurrencyResponse).
+      logger.warn("detectColor: non-JSON model output — returning unknown");
+      return fallback();
+    }
     return {
-      colorName: parsed.colorName || (lang === "ar" ? "غير معروف" : "unknown"),
+      colorName: parsed.colorName || fallback().colorName,
       hex: parsed.hex || "#000000",
     };
   } catch (error) {

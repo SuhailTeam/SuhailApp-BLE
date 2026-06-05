@@ -49,12 +49,14 @@ export interface SynthesizeOptions {
   voicePreset?: string;
   /** Raw voice ID override (takes priority over preset). */
   voiceId?: string;
-  /** Speech speed 0.5-2.0 (clamped). */
+  /** Speech speed; clamped to ElevenLabs' valid 0.7–1.2 band. */
   speed?: number;
   /** Output audio format (defaults to mp3_44100_128). */
   format?: AudioFormat;
   /** Model override; defaults to config.elevenLabsModel. */
   modelId?: string;
+  /** Abort signal — aborts the underlying fetch (per-call timeout / client disconnect). */
+  signal?: AbortSignal;
 }
 
 /** Resolves the final voice id from override > preset > config default. */
@@ -66,9 +68,14 @@ function resolveVoiceId(opts: SynthesizeOptions): string {
   return config.elevenLabsDefaultVoiceId;
 }
 
+/**
+ * Clamp to ElevenLabs' supported `voice_settings.speed` range. The API only
+ * accepts 0.7–1.2 (default 1.0) and returns a 422 for anything outside it, so a
+ * wider UI range must be clamped here or every out-of-band request fails.
+ */
 function clampSpeed(speed: number | undefined): number | undefined {
   if (typeof speed !== "number" || !Number.isFinite(speed)) return undefined;
-  return Math.min(2.0, Math.max(0.5, speed));
+  return Math.min(1.2, Math.max(0.7, speed));
 }
 
 /**
@@ -121,6 +128,7 @@ export async function synthesize(opts: SynthesizeOptions): Promise<{ audio: Buff
       "Accept": "*/*",
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (!response.ok) {

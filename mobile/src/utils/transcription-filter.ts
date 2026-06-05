@@ -5,7 +5,10 @@ import type { Language } from "../i18n/messages";
 
 const ARABIC_SCRIPT = /[؀-ۿ]/;
 const SPECIAL_CHARS = /[^\p{L}\p{N}\s]/gu;
-const REPEATED_WORD = /\b(\w+)\s+(\1\s+){3,}/i;
+// Unicode-aware: \b/\w only match ASCII, so the old form was a no-op for Arabic
+// (the default language) — a stuttered "من من من من" sailed through. Match any
+// script's word repeated 4+ times in a row.
+const REPEATED_WORD = /(\p{L}[\p{L}\p{N}]*)(?:\s+\1){3,}/iu;
 
 /**
  * Validates a transcription before it reaches the command router.

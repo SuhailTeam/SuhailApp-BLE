@@ -99,6 +99,7 @@ mock.module("../../src/audio/streamingTts", () => ({
 mock.module("../../src/ble/mic", () => ({
   startCapture: async () => mocks.capture,
   cancelCapture: async () => {},
+  stopCapture: async () => mocks.capture, // finalise+submit returns the buffered audio
 }));
 mock.module("../../src/ble/camera", () => ({
   capturePhoto: async () => ({ photoToken: "t" }),

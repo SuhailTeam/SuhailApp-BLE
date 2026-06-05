@@ -52,7 +52,7 @@ export interface RunStreamedAnswerOpts {
  */
 export async function runStreamedAnswer(opts: RunStreamedAnswerOpts): Promise<StreamedAnswerResult> {
   const { text, photoToken, language, signal } = opts;
-  const volume = getSettings().volume;
+  const { volume, speechSpeed, voicePreset } = getSettings();
 
   let mode: "streamed" | "client" | undefined;
   let command: CommandType | undefined;
@@ -69,7 +69,7 @@ export async function runStreamedAnswer(opts: RunStreamedAnswerOpts): Promise<St
   };
 
   try {
-    await requestAnswerStream({ text, photoToken, language }, signal, async (ev) => {
+    await requestAnswerStream({ text, photoToken, language, speed: speechSpeed, voicePreset }, signal, async (ev) => {
       switch (ev.type) {
         case "route":
           mode = ev.mode;

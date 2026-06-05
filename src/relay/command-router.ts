@@ -73,13 +73,20 @@ export function matchKeywordCommand(transcription: string): RouteResult | null {
   const text = transcription.toLowerCase().trim();
   if (text.length === 0) return null;
 
-  const firstWord = text.split(/\s+/)[0];
+  // STT (ElevenLabs Scribe) routinely appends terminal punctuation, so a terse
+  // one-word command comes through as "describe." / "who؟" / "money." — strip
+  // surrounding punctuation before matching, or the fast-path misses and the
+  // command pays a ~3s LLM round-trip (or, if the LLM is down, misroutes to
+  // visual-qa). Keep the raw token for the find-object slice offset below.
+  const STRIP = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+  const rawFirst = text.split(/\s+/)[0];
+  const firstWord = rawFirst.replace(STRIP, "");
 
   for (const entry of commandMap) {
     if (entry.words.includes(firstWord)) {
       let params: Record<string, string> | undefined;
       if (entry.command === "find-object") {
-        const rest = text.slice(firstWord.length).trim();
+        const rest = text.slice(rawFirst.length).trim().replace(STRIP, "");
         params = { objectName: rest || "object" };
       } else if (entry.command === "ocr-read-text") {
         params = { context: transcription };
@@ -144,6 +151,9 @@ async function classifyIntent(
         body: JSON.stringify({
           model: config.classificationModel,
           max_tokens: 80,
+          // Deterministic classification: the same spoken command must route the
+          // same way in rehearsal and on stage (mirrors the normalizer).
+          temperature: 0,
           messages: [
             { role: "system", content: CLASSIFIER_PROMPT },
             { role: "user", content: transcription },

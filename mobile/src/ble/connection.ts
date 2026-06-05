@@ -1,4 +1,4 @@
-import { createContext, createElement, useContext, useEffect, useMemo, type ReactElement, type ReactNode } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, useRef, type ReactElement, type ReactNode } from "react";
 import { MMKV } from "react-native-mmkv";
 import {
   useMentraBluetooth,
@@ -66,6 +66,20 @@ export function useSuhailBluetooth(): MentraBluetoothSession {
 let glassesConnected = false;
 const disconnectListeners = new Set<() => void>();
 
+/**
+ * When the user *deliberately* disconnects (or forgets) the glasses, suppress
+ * the app-level auto-reconnect loop so it doesn't immediately undo their action.
+ * Cleared when they explicitly connect again, and re-armed on any successful
+ * connection so the next *unexpected* drop reconnects automatically.
+ */
+let reconnectSuppressed = false;
+export function setAutoReconnectSuppressed(suppressed: boolean): void {
+  reconnectSuppressed = suppressed;
+}
+export function isAutoReconnectSuppressed(): boolean {
+  return reconnectSuppressed;
+}
+
 /** Last connection state pushed from the React session. Best-effort: lets the
  *  camera flow fail fast instead of hanging on a dead BLE link. */
 export function isGlassesConnected(): boolean {
@@ -121,9 +135,54 @@ const BluetoothSessionContext = createContext<MentraBluetoothSession | null>(nul
  */
 export function BluetoothSessionProvider({ children }: { children: ReactNode }): ReactElement {
   const session = useSuhailBluetooth();
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
+  const connected = session.glasses.connected;
+  const hasDefault = session.defaultDevice !== null;
+
+  // Mirror connection state into the imperative store. A fresh connection also
+  // re-arms auto-reconnect (clears any prior user-disconnect suppression).
   useEffect(() => {
-    setGlassesConnected(session.glasses.connected);
-  }, [session.glasses.connected]);
+    setGlassesConnected(connected);
+    if (connected) setAutoReconnectSuppressed(false);
+  }, [connected]);
+
+  // App-level auto-reconnect with exponential backoff. The BLE SDK's
+  // `autoConnectDefault` is ONE-SHOT (an internal ref guard that never resets),
+  // so without this a single mid-session BLE drop leaves the glasses
+  // permanently unresponsive to voice until someone taps "Connect" on the phone
+  // — fatal for an eyes-free flow in a crowded RF room. Runs only while
+  // disconnected, with a known default device, and not user-suppressed.
+  useEffect(() => {
+    if (connected || !hasDefault) return;
+    let cancelled = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tryReconnect = () => {
+      if (cancelled) return;
+      const s = sessionRef.current;
+      if (s.glasses.connected || !s.defaultDevice || isAutoReconnectSuppressed()) return;
+      if (s.busy) {
+        timer = setTimeout(tryReconnect, 1_000); // a connect/scan is already in flight — re-check soon
+        return;
+      }
+      logger.info(`auto-reconnect attempt ${attempt + 1}`);
+      s.connectDefault().catch((err) => logger.warn("auto-reconnect attempt failed:", err));
+      const delay = Math.min(15_000, 1_000 * 2 ** attempt);
+      attempt += 1;
+      timer = setTimeout(tryReconnect, delay);
+    };
+
+    timer = setTimeout(tryReconnect, 1_000); // let the drop settle before the first attempt
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [connected, hasDefault]);
+
   return createElement(BluetoothSessionContext.Provider, { value: session }, children);
 }
 

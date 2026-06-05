@@ -69,7 +69,7 @@ The full SDK docs live at https://bluetooth-sdk-docs.mentra.glass/. The starter 
 ### Connection lifecycle
 
 - Scan for glasses → request pairing → connect → subscribe to event streams.
-- On disconnect, retry connection with exponential backoff (the BLE SDK does not do this for us — we have to).
+- On disconnect, retry connection with exponential backoff (the BLE SDK's `autoConnectDefault` is one-shot — a ref guard that never re-fires — so we run our own reconnect loop in `BluetoothSessionProvider`, `src/ble/connection.ts`: 1→15s backoff, suppressed on a deliberate user disconnect, re-armed on any successful connect).
 - Handle Android-13+ permission flow (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, plus `ACCESS_FINE_LOCATION` for older SDKs).
 - iOS: declare BLE usage strings in `Info.plist`; background-mode-bluetooth-central if we need background audio.
 
@@ -253,7 +253,7 @@ The mobile app talks to the Railway server via these endpoints. The server imple
 | Endpoint | Method | Body | Returns | Wraps |
 |---|---|---|---|---|
 | `/api/intent` | POST | `{ text, language }` | `{ command, params, confidence }` | [command-router.ts](../src/relay/command-router.ts) |
-| `/api/answer` | POST | `{ text, photoToken, language }` | **NDJSON `AnswerEvent` stream** (route → chunks → final). The primary low-latency turn path — see [Streaming answer turn](#streaming-answer-turn). | [answer.ts](../src/relay/answer.ts) |
+| `/api/answer` | POST | `{ text, photoToken, language, speed?, voicePreset? }` | **NDJSON `AnswerEvent` stream** (route → chunks → final). The primary low-latency turn path — `speed`/`voicePreset` ride along so streamed describe/read/VQA honour the user's voice settings like the discrete /api/tts path. See [Streaming answer turn](#streaming-answer-turn). | [answer.ts](../src/relay/answer.ts) |
 | `/api/vision/scene` | POST | `{ image: base64, language }` | `{ description }` | [vision-service.ts → describeScene](../src/services/vision-service.ts) |
 | `/api/vision/ocr` | POST | `{ image: base64, language }` | `{ text, truncated }` | vision-service → extractText |
 | `/api/vision/currency` | POST | `{ image: base64, language }` | `{ bills: [...], total, currency }` | vision-service → recognizeCurrency |
@@ -294,7 +294,7 @@ The server-contract settings shape (consumed by the relay's `/api/tts` request):
 
 ```ts
 interface AppSettings {
-  speechSpeed: number;   // 0.5 - 2.0
+  speechSpeed: number;   // 0.7 - 1.2 (ElevenLabs voice_settings.speed band; clamped)
   volume: number;        // 0.0 - 1.0
   voicePreset: "default" | "male" | "female";
   language: "ar" | "en";
