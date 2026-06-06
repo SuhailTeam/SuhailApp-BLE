@@ -1,16 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { AppButton } from "../components";
 import { makeStyles, useTheme } from "../theme";
 import { ui, uiFn, useUi } from "../i18n/ui";
-import type { Language } from "../i18n/messages";
 import { deleteFace, facePhotoUrl, listFaces, renameFace, type EnrolledFace } from "../relay/faces";
 import { Logger } from "../utils/logger";
 
 const logger = new Logger("Contacts");
+
+/**
+ * Which transient overlay is open over the grid. Only ever one at a time — they
+ * share a single <Modal> so iOS never has to juggle stacked modals (the classic
+ * dismiss-then-present race). `selected` is the contact all three act on.
+ */
+type Overlay = "detail" | "photo" | "rename" | null;
 
 export default function ContactsScreen(): React.ReactElement {
   const theme = useTheme();
@@ -20,10 +26,11 @@ export default function ContactsScreen(): React.ReactElement {
   const [faces, setFaces] = useState<EnrolledFace[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** faceId currently being renamed/deleted — disables its row actions. */
+  /** faceId currently being renamed/deleted — shows a busy overlay on its card. */
   const [mutatingId, setMutatingId] = useState<string | null>(null);
-  /** Open rename modal target (null = closed). */
-  const [editing, setEditing] = useState<EnrolledFace | null>(null);
+  /** Contact the open overlay acts on (null = nothing selected). */
+  const [selected, setSelected] = useState<EnrolledFace | null>(null);
+  const [overlay, setOverlay] = useState<Overlay>(null);
   const [draftName, setDraftName] = useState("");
 
   const refresh = useCallback(async () => {
@@ -44,20 +51,38 @@ export default function ContactsScreen(): React.ReactElement {
     void refresh();
   }, [refresh]);
 
-  const openRename = useCallback((face: EnrolledFace) => {
-    setEditing(face);
-    setDraftName(face.name);
+  const closeOverlay = useCallback(() => {
+    setOverlay(null);
+    setSelected(null);
   }, []);
 
+  const openDetail = useCallback((face: EnrolledFace) => {
+    setSelected(face);
+    setOverlay("detail");
+  }, []);
+
+  /** Android hardware-back: photo viewer steps back to the detail sheet; else close. */
+  const handleRequestClose = useCallback(() => {
+    if (overlay === "photo") setOverlay("detail");
+    else closeOverlay();
+  }, [overlay, closeOverlay]);
+
+  const requestRename = useCallback(() => {
+    if (!selected) return;
+    setDraftName(selected.name);
+    setOverlay("rename");
+  }, [selected]);
+
   const saveRename = useCallback(async () => {
-    if (!editing) return;
+    const target = selected;
+    if (!target) return;
     const next = draftName.trim();
-    if (next.length < 2 || next === editing.name) {
-      setEditing(null);
+    if (next.length < 2 || next === target.name) {
+      closeOverlay();
       return;
     }
-    const faceId = editing.faceId;
-    setEditing(null);
+    const faceId = target.faceId;
+    closeOverlay();
     setMutatingId(faceId);
     // Optimistic — reflect the new name immediately, reconcile via refresh.
     setFaces((prev) => prev.map((f) => (f.faceId === faceId ? { ...f, name: next } : f)));
@@ -71,34 +96,35 @@ export default function ContactsScreen(): React.ReactElement {
     } finally {
       setMutatingId(null);
     }
-  }, [editing, draftName, refresh, t]);
+  }, [selected, draftName, refresh, t, closeOverlay]);
 
-  const confirmDelete = useCallback(
-    (face: EnrolledFace) => {
-      Alert.alert(t(ui.contacts.deleteTitle), uiFn.deleteMsg[lang](face.name), [
-        { text: t(ui.contacts.cancel), style: "cancel" },
-        {
-          text: t(ui.contacts.delete),
-          style: "destructive",
-          onPress: async () => {
-            setMutatingId(face.faceId);
-            setFaces((prev) => prev.filter((f) => f.faceId !== face.faceId)); // optimistic
-            try {
-              await deleteFace(face.faceId);
-              await refresh();
-            } catch (err) {
-              logger.error("deleteFace failed", err);
-              Alert.alert(t(ui.contacts.deleteTitle), t(ui.contacts.failed));
-              await refresh();
-            } finally {
-              setMutatingId(null);
-            }
-          },
+  const requestDelete = useCallback(() => {
+    const target = selected;
+    if (!target) return;
+    // Dismiss the sheet first, then confirm — keeps the Alert above a clean screen.
+    closeOverlay();
+    Alert.alert(t(ui.contacts.deleteTitle), uiFn.deleteMsg[lang](target.name), [
+      { text: t(ui.contacts.cancel), style: "cancel" },
+      {
+        text: t(ui.contacts.delete),
+        style: "destructive",
+        onPress: async () => {
+          setMutatingId(target.faceId);
+          setFaces((prev) => prev.filter((f) => f.faceId !== target.faceId)); // optimistic
+          try {
+            await deleteFace(target.faceId);
+            await refresh();
+          } catch (err) {
+            logger.error("deleteFace failed", err);
+            Alert.alert(t(ui.contacts.deleteTitle), t(ui.contacts.failed));
+            await refresh();
+          } finally {
+            setMutatingId(null);
+          }
         },
-      ]);
-    },
-    [refresh, t, lang],
-  );
+      },
+    ]);
+  }, [selected, refresh, t, lang, closeOverlay]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>
@@ -106,7 +132,7 @@ export default function ContactsScreen(): React.ReactElement {
         <ActivityIndicator color={theme.colors.accent} style={{ marginTop: theme.spacing.xxl }} />
       ) : error && faces.length === 0 ? (
         // Only show the full-screen error when there's nothing to show. A failed
-        // pull-to-refresh while contacts are already loaded keeps the list
+        // pull-to-refresh while contacts are already loaded keeps the grid
         // (the spinner just clears) instead of blanking it on a transient blip.
         <View style={styles.center}>
           <Ionicons name="cloud-offline-outline" size={48} color={theme.colors.textMuted} />
@@ -122,115 +148,236 @@ export default function ContactsScreen(): React.ReactElement {
         <FlatList
           data={faces}
           keyExtractor={(item) => item.faceId}
+          numColumns={2}
           contentContainerStyle={styles.listContent}
           refreshing={loading}
           onRefresh={refresh}
           renderItem={({ item }) => (
-            <ContactRow
-              face={item}
-              busy={mutatingId === item.faceId}
-              lang={lang}
-              onRename={() => openRename(item)}
-              onDelete={() => confirmDelete(item)}
-            />
+            <View style={styles.cell}>
+              <ContactCard face={item} busy={mutatingId === item.faceId} onPress={() => openDetail(item)} />
+            </View>
           )}
-          ItemSeparatorComponent={() => <View style={styles.sep} />}
         />
       )}
 
-      <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard} accessibilityViewIsModal>
-            <Text accessibilityRole="header" style={styles.modalTitle}>
-              {t(ui.contacts.renameTitle)}
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={draftName}
-              onChangeText={setDraftName}
-              placeholder={t(ui.contacts.namePlaceholder)}
-              placeholderTextColor={theme.colors.textMuted}
-              accessibilityLabel={t(ui.contacts.namePlaceholder)}
-              autoFocus
-              selectTextOnFocus
-              onSubmitEditing={saveRename}
-              returnKeyType="done"
-            />
-            <View style={styles.modalActions}>
-              <AppButton variant="ghost" label={t(ui.contacts.cancel)} onPress={() => setEditing(null)} fullWidth={false} />
-              <AppButton label={t(ui.contacts.save)} onPress={saveRename} disabled={draftName.trim().length < 2} fullWidth={false} />
+      <Modal
+        visible={overlay !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={handleRequestClose}
+      >
+        {overlay === "photo" && selected ? (
+          <PhotoViewer face={selected} onClose={() => setOverlay("detail")} />
+        ) : overlay === "detail" && selected ? (
+          <ContactDetailSheet
+            face={selected}
+            onClose={closeOverlay}
+            onViewPhoto={() => setOverlay("photo")}
+            onRename={requestRename}
+            onDelete={requestDelete}
+          />
+        ) : overlay === "rename" && selected ? (
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard} accessibilityViewIsModal>
+              <Text accessibilityRole="header" style={styles.modalTitle}>
+                {t(ui.contacts.renameTitle)}
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={draftName}
+                onChangeText={setDraftName}
+                placeholder={t(ui.contacts.namePlaceholder)}
+                placeholderTextColor={theme.colors.textMuted}
+                accessibilityLabel={t(ui.contacts.namePlaceholder)}
+                autoFocus
+                selectTextOnFocus
+                onSubmitEditing={saveRename}
+                returnKeyType="done"
+              />
+              <View style={styles.modalActions}>
+                <AppButton variant="ghost" label={t(ui.contacts.cancel)} onPress={closeOverlay} fullWidth={false} />
+                <AppButton label={t(ui.contacts.save)} onPress={saveRename} disabled={draftName.trim().length < 2} fullWidth={false} />
+              </View>
             </View>
           </View>
-        </View>
+        ) : null}
       </Modal>
     </SafeAreaView>
   );
 }
 
-function ContactRow({
+/** One grid cell: a tappable card with a large square photo and the name below. */
+function ContactCard({
   face,
   busy,
-  lang,
-  onRename,
-  onDelete,
+  onPress,
 }: {
   face: EnrolledFace;
   busy: boolean;
-  lang: Language;
-  onRename: () => void;
-  onDelete: () => void;
+  onPress: () => void;
 }): React.ReactElement {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const { t } = useUi();
   const [imgFailed, setImgFailed] = useState(false);
   const initial = face.name.trim().charAt(0).toUpperCase() || "?";
   const showPhoto = face.hasPhoto && !imgFailed;
 
   return (
-    <View style={styles.row}>
-      {showPhoto ? (
-        <Image
-          source={{ uri: facePhotoUrl(face.faceId) }}
-          style={styles.avatar}
-          onError={() => setImgFailed(true)}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        />
-      ) : (
-        <View style={[styles.avatar, styles.avatarPlaceholder]} accessibilityElementsHidden importantForAccessibility="no">
-          <Text style={styles.avatarInitial}>{initial}</Text>
-        </View>
-      )}
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={face.name}
+      accessibilityHint={t(ui.contacts.cardHint)}
+      accessibilityState={{ busy }}
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+    >
+      <View style={styles.cardPhotoWrap}>
+        {showPhoto ? (
+          <Image
+            source={{ uri: facePhotoUrl(face.faceId) }}
+            style={styles.cardPhoto}
+            onError={() => setImgFailed(true)}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+        ) : (
+          <View style={[styles.cardPhoto, styles.avatarPlaceholder]} accessibilityElementsHidden importantForAccessibility="no">
+            <Text style={styles.cardInitial}>{initial}</Text>
+          </View>
+        )}
+        {busy ? (
+          <View style={styles.cardBusy}>
+            <ActivityIndicator color={theme.colors.accent} />
+          </View>
+        ) : null}
+      </View>
+      <Text style={styles.cardName} numberOfLines={1}>
+        {face.name}
+      </Text>
+    </Pressable>
+  );
+}
 
-      <View style={styles.rowBody}>
-        <Text style={styles.name} numberOfLines={1}>
+/** Bottom-anchored detail sheet: big (tappable) photo, name, date, rename/delete. */
+function ContactDetailSheet({
+  face,
+  onClose,
+  onViewPhoto,
+  onRename,
+  onDelete,
+}: {
+  face: EnrolledFace;
+  onClose: () => void;
+  onViewPhoto: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { t, lang } = useUi();
+  const insets = useSafeAreaInsets();
+  const [imgFailed, setImgFailed] = useState(false);
+  const initial = face.name.trim().charAt(0).toUpperCase() || "?";
+  const showPhoto = face.hasPhoto && !imgFailed;
+  const dateStr = face.enrolledAt ? new Date(face.enrolledAt).toLocaleDateString() : null;
+
+  return (
+    <View style={styles.sheetRoot}>
+      <Pressable
+        style={styles.sheetBackdrop}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel={t(ui.contacts.close)}
+      />
+      <View style={[styles.sheetCard, { paddingBottom: insets.bottom + theme.spacing.xl }]} accessibilityViewIsModal>
+        <Pressable
+          style={styles.sheetClose}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel={t(ui.contacts.close)}
+          hitSlop={theme.hitSlop}
+        >
+          <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+        </Pressable>
+
+        {showPhoto ? (
+          <Pressable
+            style={styles.sheetPhotoWrap}
+            onPress={onViewPhoto}
+            accessibilityRole="button"
+            accessibilityLabel={t(ui.contacts.viewPhoto)}
+          >
+            <Image
+              source={{ uri: facePhotoUrl(face.faceId) }}
+              style={styles.sheetPhoto}
+              onError={() => setImgFailed(true)}
+              accessibilityElementsHidden
+              importantForAccessibility="no"
+            />
+          </Pressable>
+        ) : (
+          <View style={[styles.sheetPhotoWrap, styles.avatarPlaceholder]} accessibilityElementsHidden importantForAccessibility="no">
+            <Text style={styles.sheetInitial}>{initial}</Text>
+          </View>
+        )}
+
+        <Text style={styles.sheetName} accessibilityRole="header" numberOfLines={2}>
           {face.name}
         </Text>
-        {face.enrolledAt ? <Text style={styles.sub}>{new Date(face.enrolledAt).toLocaleDateString()}</Text> : null}
-      </View>
+        {dateStr ? <Text style={styles.sheetSub}>{uiFn.enrolledOn[lang](dateStr)}</Text> : null}
 
-      {busy ? (
-        <ActivityIndicator color={theme.colors.accent} style={styles.rowBusy} />
+        <View style={styles.sheetActions}>
+          <View style={styles.actionBtn}>
+            <AppButton iconName="pencil" label={t(ui.contacts.rename)} onPress={onRename} />
+          </View>
+          <View style={styles.actionBtn}>
+            <AppButton iconName="trash-outline" variant="danger" label={t(ui.contacts.delete)} onPress={onDelete} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** Full-screen photo lightbox: contained image on near-black, tap anywhere or X to close. */
+function PhotoViewer({ face, onClose }: { face: EnrolledFace; onClose: () => void }): React.ReactElement {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const { t } = useUi();
+  const insets = useSafeAreaInsets();
+  const [imgFailed, setImgFailed] = useState(false);
+  const initial = face.name.trim().charAt(0).toUpperCase() || "?";
+
+  return (
+    <View style={styles.photoRoot}>
+      {/* Tap-anywhere-to-dismiss backdrop; the image sits on top but lets touches through. */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
+      {imgFailed ? (
+        <Text style={styles.photoInitial}>{initial}</Text>
       ) : (
-        <View style={styles.rowActions}>
-          <Pressable
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-            onPress={onRename}
-            accessibilityRole="button"
-            accessibilityLabel={uiFn.renameA11y[lang](face.name)}
-          >
-            <Ionicons name="pencil" size={20} color={theme.colors.accent} />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.iconBtn, styles.iconBtnDanger, pressed && styles.pressed]}
-            onPress={onDelete}
-            accessibilityRole="button"
-            accessibilityLabel={uiFn.deleteA11y[lang](face.name)}
-          >
-            <Ionicons name="trash-outline" size={20} color={theme.colors.dangerText} />
-          </Pressable>
+        // pointerEvents="none" on the wrapper lets taps fall through to the backdrop.
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Image
+            source={{ uri: facePhotoUrl(face.faceId) }}
+            style={styles.fullPhoto}
+            resizeMode="contain"
+            onError={() => setImgFailed(true)}
+            accessibilityRole="image"
+            accessibilityLabel={face.name}
+          />
         </View>
       )}
+      <Pressable
+        style={[styles.photoClose, { top: insets.top + theme.spacing.md }]}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel={t(ui.contacts.close)}
+        hitSlop={theme.hitSlop}
+      >
+        <Ionicons name="close" size={28} color="#FFFFFF" />
+      </Pressable>
     </View>
   );
 }
@@ -241,29 +388,57 @@ const createStyles = makeStyles((t) =>
     center: { flex: 1, alignItems: "center", justifyContent: "center", padding: t.spacing.xl, gap: t.spacing.md },
     emptyText: { color: t.colors.textSecondary, textAlign: "center", fontSize: t.type.body.fontSize, lineHeight: t.type.body.lineHeight },
     errorText: { color: t.colors.dangerText, textAlign: "center", fontSize: t.type.body.fontSize },
-    listContent: { padding: t.spacing.lg },
-    row: { flexDirection: "row", alignItems: "center", paddingVertical: t.spacing.md, gap: t.spacing.md },
-    avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: t.colors.surfaceAlt },
+
+    // Grid
+    listContent: { padding: t.spacing.sm },
+    cell: { width: "50%", padding: t.spacing.sm },
+    card: {
+      backgroundColor: t.colors.surface,
+      borderRadius: t.radii.lg,
+      borderWidth: t.borderWidth,
+      borderColor: t.colors.border,
+      padding: t.spacing.md,
+      gap: t.spacing.sm,
+      alignItems: "center",
+    },
+    pressed: { opacity: 0.85 },
+    cardPhotoWrap: { width: "100%", aspectRatio: 1, borderRadius: t.radii.md, overflow: "hidden", backgroundColor: t.colors.surfaceAlt },
+    cardPhoto: { width: "100%", height: "100%" },
     avatarPlaceholder: { alignItems: "center", justifyContent: "center" },
-    avatarInitial: { color: t.colors.textSecondary, fontSize: t.type.title.fontSize, fontWeight: "700" },
-    rowBody: { flex: 1, gap: 2 },
-    name: { color: t.colors.textPrimary, fontSize: t.type.body.fontSize, fontWeight: "600" },
-    sub: { color: t.colors.textMuted, fontSize: t.type.caption.fontSize },
-    rowBusy: { width: t.minTouch * 2 },
-    rowActions: { flexDirection: "row", gap: t.spacing.sm },
-    iconBtn: {
-      width: t.minTouch,
-      height: t.minTouch,
-      borderRadius: t.radii.md,
-      backgroundColor: t.colors.surfaceAlt,
+    cardInitial: { color: t.colors.textSecondary, fontSize: t.type.display.fontSize, fontWeight: "700" },
+    cardBusy: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: t.colors.overlay },
+    cardName: { color: t.colors.textPrimary, fontSize: t.type.body.fontSize, fontWeight: "600", textAlign: "center" },
+
+    // Detail sheet
+    sheetRoot: { flex: 1, justifyContent: "flex-end" },
+    sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: t.colors.overlay },
+    sheetCard: {
+      backgroundColor: t.colors.surface,
+      borderTopLeftRadius: t.radii.lg,
+      borderTopRightRadius: t.radii.lg,
       borderWidth: t.borderWidth,
       borderColor: t.colors.borderStrong,
+      paddingHorizontal: t.spacing.xl,
+      paddingTop: t.spacing.xl,
+      gap: t.spacing.md,
       alignItems: "center",
-      justifyContent: "center",
     },
-    iconBtnDanger: { borderColor: t.colors.danger },
-    pressed: { opacity: 0.8 },
-    sep: { height: t.borderWidth, backgroundColor: t.colors.border },
+    sheetClose: { position: "absolute", top: t.spacing.md, end: t.spacing.md, width: t.minTouch, height: t.minTouch, alignItems: "center", justifyContent: "center", zIndex: 1 },
+    sheetPhotoWrap: { width: "62%", aspectRatio: 1, borderRadius: t.radii.lg, overflow: "hidden", backgroundColor: t.colors.surfaceAlt, marginTop: t.spacing.sm },
+    sheetPhoto: { width: "100%", height: "100%" },
+    sheetInitial: { color: t.colors.textSecondary, fontSize: Math.round(t.type.display.fontSize * 1.5), fontWeight: "700" },
+    sheetName: { color: t.colors.textPrimary, fontSize: t.type.title.fontSize, lineHeight: t.type.title.lineHeight, fontWeight: t.type.title.fontWeight, textAlign: "center" },
+    sheetSub: { color: t.colors.textMuted, fontSize: t.type.caption.fontSize, textAlign: "center" },
+    sheetActions: { flexDirection: "row", gap: t.spacing.md, alignSelf: "stretch", marginTop: t.spacing.sm },
+    actionBtn: { flex: 1 },
+
+    // Full-screen photo viewer (media lightbox — fixed near-black, not themed)
+    photoRoot: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
+    fullPhoto: { width: "100%", height: "100%" },
+    photoInitial: { color: "#FFFFFF", fontSize: 72, fontWeight: "700" },
+    photoClose: { position: "absolute", end: t.spacing.lg, width: t.minTouch, height: t.minTouch, borderRadius: t.radii.pill, backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
+
+    // Rename modal
     modalBackdrop: { flex: 1, backgroundColor: t.colors.overlay, alignItems: "center", justifyContent: "center", padding: t.spacing.xl },
     modalCard: {
       width: "100%",
@@ -274,7 +449,7 @@ const createStyles = makeStyles((t) =>
       padding: t.spacing.xl,
       gap: t.spacing.lg,
     },
-    modalTitle: { color: t.colors.textPrimary, fontSize: t.type.title.fontSize, fontWeight: t.type.title.fontWeight },
+    modalTitle: { color: t.colors.textPrimary, fontSize: t.type.title.fontSize, fontWeight: t.type.title.fontWeight, textAlign: "center" },
     input: {
       backgroundColor: t.colors.bg,
       borderWidth: t.borderWidth,
