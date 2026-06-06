@@ -136,12 +136,6 @@ export default function HomeScreen(): React.ReactElement {
             <Text style={styles.info}>
               {t(ui.home.battery)}: {session.glasses.battery.level ?? "—"}%
             </Text>
-            {session.glasses.battery.charging ? (
-              <View style={styles.inline}>
-                <Ionicons name="flash" size={16} color={theme.colors.warningText} />
-                <Text style={styles.info}>{t(ui.home.charging)}</Text>
-              </View>
-            ) : null}
             {session.glasses.firmware.version ? (
               <Text style={styles.infoMuted}>{t(ui.home.firmware)}: {session.glasses.firmware.version}</Text>
             ) : null}
@@ -216,7 +210,6 @@ const createStyles = makeStyles((t) =>
     statusLabel: { color: t.colors.textPrimary, fontSize: t.type.title.fontSize, lineHeight: t.type.title.lineHeight, fontWeight: t.type.title.fontWeight },
     statusSub: { color: t.colors.textSecondary, fontSize: t.type.caption.fontSize, lineHeight: t.type.caption.lineHeight },
     batteryRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: t.spacing.md, marginTop: t.spacing.xs },
-    inline: { flexDirection: "row", alignItems: "center", gap: t.spacing.xs },
     info: { color: t.colors.textSecondary, fontSize: t.type.body.fontSize },
     infoMuted: { color: t.colors.textMuted, fontSize: t.type.caption.fontSize },
     actions: { gap: t.spacing.md },

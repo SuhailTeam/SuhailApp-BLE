@@ -37,7 +37,6 @@ export const ui = {
     disconnect: { ar: "اقطع الاتصال", en: "Disconnect" },
     forget: { ar: "انسَ النظارة", en: "Forget glasses" },
     battery: { ar: "البطارية", en: "Battery" },
-    charging: { ar: "يشحن", en: "Charging" },
     firmware: { ar: "الإصدار", en: "Firmware" },
     device: { ar: "الجهاز", en: "Device" },
     commandsTitle: { ar: "الأوامر الصوتية", en: "Voice commands" },
@@ -67,6 +66,12 @@ export const ui = {
     namePlaceholder: { ar: "الاسم", en: "Name" },
     deleteTitle: { ar: "حذف الشخص", en: "Delete contact" },
     failed: { ar: "فشلت العملية. حاول مرة ثانية.", en: "That didn't work. Please try again." },
+    close: { ar: "إغلاق", en: "Close" },
+    viewPhoto: { ar: "عرض الصورة بالحجم الكامل", en: "View photo full screen" },
+    cardHint: {
+      ar: "افتح التفاصيل للتسمية أو الحذف أو عرض الصورة",
+      en: "Open details to rename, delete, or view the photo",
+    },
   },
   activity: {
     empty: { ar: "ما فيه نشاط بعد.", en: "No activity yet." },
@@ -103,6 +108,8 @@ export const ui = {
     ok: { ar: "حسناً", en: "OK" },
     testingSection: { ar: "الاختبار", en: "Testing" },
     usabilityTest: { ar: "وضع اختبار الاستخدام", en: "Usability test mode" },
+    replayOnboarding: { ar: "الجولة التعريفية", en: "Onboarding tour" },
+    replayOnboardingAction: { ar: "إعادة العرض", en: "Replay" },
   },
   usability: {
     title: { ar: "اختبار قابلية الاستخدام", en: "Usability test" },
@@ -199,6 +206,10 @@ export const uiFn = {
   deleteA11y: {
     ar: (name: string) => `حذف ${name}`,
     en: (name: string) => `Delete ${name}`,
+  },
+  enrolledOn: {
+    ar: (date: string) => `أُضيف في ${date}`,
+    en: (date: string) => `Enrolled ${date}`,
   },
   stepOf: {
     ar: (n: number, total: number) => `الخطوة ${n} من ${total}`,

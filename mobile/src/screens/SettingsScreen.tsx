@@ -8,6 +8,7 @@ import { ui, useUi } from "../i18n/ui";
 import type { Language } from "../i18n/messages";
 import { useSettings } from "../state/settings";
 import { useAppearance, TEXT_SCALE_STEP } from "../state/appearance";
+import { useOnboarding } from "../state/onboarding";
 
 export default function SettingsScreen(): React.ReactElement {
   const theme = useTheme();
@@ -19,6 +20,9 @@ export default function SettingsScreen(): React.ReactElement {
   const textScale = useAppearance((s) => s.textScale);
   const updateAppearance = useAppearance((s) => s.update);
   const resetAppearance = useAppearance((s) => s.reset);
+  // Re-show the first-launch onboarding wizard. Flipping the gate swaps the root
+  // navigator to Onboarding immediately (used for demos / re-walkthroughs).
+  const replayOnboarding = useOnboarding((s) => s.reset);
 
   const onLanguage = (next: Language) => {
     if (next === settings.language) return;
@@ -114,6 +118,16 @@ export default function SettingsScreen(): React.ReactElement {
             iconName="flask-outline"
             label={t(ui.usability.title)}
             onPress={() => navigation.navigate("UsabilityTest")}
+            fullWidth={false}
+          />
+        </SettingRow>
+        <View style={styles.divider} />
+        <SettingRow label={t(ui.settings.replayOnboarding)}>
+          <AppButton
+            variant="secondary"
+            iconName="play-circle-outline"
+            label={t(ui.settings.replayOnboardingAction)}
+            onPress={replayOnboarding}
             fullWidth={false}
           />
         </SettingRow>
