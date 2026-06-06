@@ -34,7 +34,7 @@ export function MainTabs(): React.ReactElement {
 
   return (
     <Tab.Navigator
-      initialRouteName="Settings"
+      initialRouteName="Home"
       screenOptions={({ route }) => ({
         headerTitle: () => (
           <View style={{ flexDirection: isRTL ? "row-reverse" : "row", alignItems: "center", gap: 8, justifyContent: "center" }}>
@@ -85,9 +85,22 @@ export function MainTabs(): React.ReactElement {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ title: titles.Home, tabBarAccessibilityLabel: titles.Home }} />
-      <Tab.Screen name="Contacts" component={ContactsScreen} options={{ title: titles.Contacts, tabBarAccessibilityLabel: titles.Contacts }} />
-      <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: titles.Settings, tabBarAccessibilityLabel: titles.Settings }} />
+      {isRTL ? (
+        // Arabic (RTL): register in reverse so the native mirroring puts
+        // الرئيسية on the right, الأشخاص in the centre, الإعدادات on the left.
+        <>
+          <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: titles.Settings, tabBarAccessibilityLabel: titles.Settings }} />
+          <Tab.Screen name="Contacts" component={ContactsScreen} options={{ title: titles.Contacts, tabBarAccessibilityLabel: titles.Contacts }} />
+          <Tab.Screen name="Home" component={HomeScreen} options={{ title: titles.Home, tabBarAccessibilityLabel: titles.Home }} />
+        </>
+      ) : (
+        // English (LTR): HOME | CONTACTS | SETTINGS
+        <>
+          <Tab.Screen name="Home" component={HomeScreen} options={{ title: titles.Home, tabBarAccessibilityLabel: titles.Home }} />
+          <Tab.Screen name="Contacts" component={ContactsScreen} options={{ title: titles.Contacts, tabBarAccessibilityLabel: titles.Contacts }} />
+          <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: titles.Settings, tabBarAccessibilityLabel: titles.Settings }} />
+        </>
+      )}
     </Tab.Navigator>
   );
 }
